@@ -130,7 +130,7 @@ BoxLayout:
 
         Button:
             id: predict_btn
-            text: "⚡ PREDICT CO & BL"
+            text: "PREDICT CO & BL"
             bold: True
             font_size: "15sp"
             background_normal: ""
@@ -161,13 +161,14 @@ BoxLayout:
     # --- Result Cards (Dual Grid) ---
     BoxLayout:
         orientation: "horizontal"
-        size_hint_y: 0.28
+        size_hint_y: 0.30
         spacing: "12dp"
 
         # Card 1: Course Outcome (CO)
         BoxLayout:
             orientation: "vertical"
-            padding: "12dp"
+            size_hint_x: 0.5
+            padding: ["12dp", "10dp", "12dp", "10dp"]
             spacing: "4dp"
             canvas.before:
                 Color:
@@ -182,7 +183,9 @@ BoxLayout:
                 font_size: "11sp"
                 bold: True
                 size_hint_y: None
-                height: "16dp"
+                height: "18dp"
+                halign: "center"
+                valign: "middle"
 
             Label:
                 id: co_badge
@@ -191,12 +194,25 @@ BoxLayout:
                 font_size: "26sp"
                 bold: True
                 size_hint_y: None
-                height: "36dp"
+                height: "38dp"
+                halign: "center"
+                valign: "middle"
+
+            Label:
+                id: co_title
+                text: "Course Outcome"
+                color: 0.95, 0.95, 0.97, 1
+                font_size: "13sp"
+                bold: True
+                size_hint_y: None
+                height: "20dp"
+                halign: "center"
+                valign: "middle"
 
             Label:
                 id: co_desc
                 text: "Analyze radiation mechanisms and antenna parameters."
-                color: 0.88, 0.88, 0.92, 1
+                color: 0.80, 0.83, 0.88, 1
                 font_size: "11sp"
                 halign: "center"
                 valign: "top"
@@ -205,7 +221,8 @@ BoxLayout:
         # Card 2: Bloom's Level (BL)
         BoxLayout:
             orientation: "vertical"
-            padding: "12dp"
+            size_hint_x: 0.5
+            padding: ["12dp", "10dp", "12dp", "10dp"]
             spacing: "4dp"
             canvas.before:
                 Color:
@@ -220,7 +237,9 @@ BoxLayout:
                 font_size: "11sp"
                 bold: True
                 size_hint_y: None
-                height: "16dp"
+                height: "18dp"
+                halign: "center"
+                valign: "middle"
 
             Label:
                 id: bl_badge
@@ -229,16 +248,29 @@ BoxLayout:
                 font_size: "26sp"
                 bold: True
                 size_hint_y: None
-                height: "36dp"
+                height: "38dp"
+                halign: "center"
+                valign: "middle"
 
             Label:
                 id: bl_name
                 text: "Understand"
                 color: 0.95, 0.95, 0.97, 1
-                font_size: "14sp"
+                font_size: "13sp"
                 bold: True
                 size_hint_y: None
-                height: "22dp"
+                height: "20dp"
+                halign: "center"
+                valign: "middle"
+
+            Label:
+                id: bl_desc
+                text: "Explain concepts, classify, and interpret meaning."
+                color: 0.80, 0.83, 0.88, 1
+                font_size: "11sp"
+                halign: "center"
+                valign: "top"
+                text_size: self.width, None
 
     # --- Card 3: Engine & Justification ---
     BoxLayout:
@@ -276,7 +308,7 @@ BoxLayout:
 
 class COBLApp(App):
     def build(self):
-        self.title = "CO-BL Predictor (Cyber Dark)"
+        self.title = "CO-BL Predictor"
         return Builder.load_string(KV)
 
     def get_subject_list(self):
@@ -306,10 +338,15 @@ class COBLApp(App):
 
     @mainthread
     def update_results(self, res):
-        self.root.ids.co_badge.text = res.get("co", "CO1")
+        co_val = res.get("co", "CO1")
+        self.root.ids.co_badge.text = co_val
+        self.root.ids.co_title.text = f"Course Outcome {co_val.replace('CO', '').replace('CLO', '')}"
         self.root.ids.co_desc.text = res.get("co_desc", "")
+
         self.root.ids.bl_badge.text = res.get("bl", "L2")
         self.root.ids.bl_name.text = res.get("bl_name", "Understand")
+        self.root.ids.bl_desc.text = res.get("bl_desc", "Cognitive skill level")
+
         self.root.ids.source_label.text = f"Engine: {res.get('source', 'Unknown')}"
         self.root.ids.explanation_label.text = res.get("explanation", "")
 

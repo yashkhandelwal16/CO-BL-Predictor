@@ -101,6 +101,7 @@ def predict_rule_based(question, subject_name):
         "co_desc": co_desc,
         "bl": detected_bl,
         "bl_name": bl_info.get("name", "Understand"),
+        "bl_desc": bl_info.get("description", "Cognitive skill level"),
         "source": "Smart NLP Matcher",
         "explanation": f"Matched cognitive action verb to '{detected_bl}: {bl_info.get('name')}' and domain keywords to '{best_co}'."
     }
@@ -175,11 +176,14 @@ You MUST respond ONLY with a valid JSON object in this exact format, with NO mar
                     # Ensure valid CO key
                     if co_id not in cos and co_id.replace("L", "") in cos:
                         co_id = co_id.replace("L", "")
+                    bl_code = parsed.get("bl", "L2")
+                    bl_info = CURRICULUM.get("bloom_levels", {}).get(bl_code, {})
                     return {
                         "co": co_id,
                         "co_desc": cos.get(co_id, ""),
-                        "bl": parsed.get("bl", "L2"),
-                        "bl_name": parsed.get("bl_name", "Understand"),
+                        "bl": bl_code,
+                        "bl_name": parsed.get("bl_name", bl_info.get("name", "Understand")),
+                        "bl_desc": bl_info.get("description", "Cognitive understanding & classification."),
                         "source": f"OpenRouter ({model.split('/')[1]})",
                         "explanation": parsed.get("explanation", "Classified using LLM.")
                     }
