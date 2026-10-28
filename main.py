@@ -8,25 +8,50 @@ from kivy.uix.spinner import Spinner
 from predictor import predict, CURRICULUM
 
 # Desktop Window Size
-Window.size = (540, 780)
-Window.clearcolor = (0.95, 0.97, 0.99, 1)
+Window.size = (540, 800)
+
+# =====================================================================
+# 🎨 COLOR THEME PALETTE: Sleek Yellow & Black (Cyber Dark)
+# You can easily adjust any color here!
+# Format: [Red, Green, Blue, Alpha] (values from 0.0 to 1.0)
+# =====================================================================
+THEME = {
+    "bg_window": [0.07, 0.07, 0.09, 1],       # Deep Obsidian Black
+    "card_bg": [0.13, 0.13, 0.16, 1],         # Dark Matte Charcoal Cards
+    "card_subtle": [0.10, 0.10, 0.12, 1],     # Slightly darker background
+    "accent_yellow": [1.0, 0.80, 0.02, 1],    # Electric Cyber Yellow
+    "accent_gold": [1.0, 0.65, 0.05, 1],      # Warm Amber Gold
+    "text_primary": [0.96, 0.96, 0.97, 1],    # Crisp White
+    "text_muted": [0.60, 0.63, 0.68, 1],      # Muted Gray
+    "btn_text_dark": [0.06, 0.06, 0.07, 1],   # Pitch Black for button text
+    "btn_clear": [0.22, 0.22, 0.26, 1],       # Slate Charcoal for Clear button
+    "input_bg": [0.12, 0.12, 0.15, 1],        # Input box dark background
+}
+
+Window.clearcolor = THEME["bg_window"]
 
 KV = """
 BoxLayout:
     orientation: "vertical"
     padding: ["24dp", "20dp", "24dp", "20dp"]
     spacing: "12dp"
+    canvas.before:
+        Color:
+            rgba: 0.07, 0.07, 0.09, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
 
     # --- Header Section ---
     BoxLayout:
         orientation: "vertical"
         size_hint_y: None
-        height: "64dp"
+        height: "66dp"
         spacing: "4dp"
 
         Label:
             text: "CO–BL Predictor"
-            color: 0.07, 0.23, 0.33, 1
+            color: 1.0, 0.82, 0.02, 1
             font_size: "26sp"
             bold: True
             size_hint_y: None
@@ -35,7 +60,7 @@ BoxLayout:
 
         Label:
             text: "AI-Powered Academic Question Classification"
-            color: 0.35, 0.48, 0.56, 1
+            color: 0.65, 0.68, 0.72, 1
             font_size: "13sp"
             size_hint_y: None
             height: "20dp"
@@ -45,12 +70,12 @@ BoxLayout:
     BoxLayout:
         orientation: "vertical"
         size_hint_y: None
-        height: "64dp"
+        height: "66dp"
         spacing: "4dp"
 
         Label:
             text: "Select Subject / Course:"
-            color: 0.15, 0.25, 0.32, 1
+            color: 1.0, 0.80, 0.02, 1
             font_size: "13sp"
             bold: True
             size_hint_y: None
@@ -63,21 +88,21 @@ BoxLayout:
             text: "Microwave Engineering and Antennas"
             values: app.get_subject_list()
             size_hint_y: None
-            height: "40dp"
+            height: "42dp"
             background_normal: ""
-            background_color: 0.15, 0.40, 0.50, 1
-            color: 1, 1, 1, 1
+            background_color: 0.14, 0.14, 0.18, 1
+            color: 0.95, 0.95, 0.96, 1
             bold: True
 
     # --- Question Input Box ---
     BoxLayout:
         orientation: "vertical"
-        size_hint_y: 0.38
+        size_hint_y: 0.36
         spacing: "4dp"
 
         Label:
             text: "Enter Examination Question:"
-            color: 0.15, 0.25, 0.32, 1
+            color: 1.0, 0.80, 0.02, 1
             font_size: "13sp"
             bold: True
             size_hint_y: None
@@ -91,40 +116,43 @@ BoxLayout:
             hint_text: "Type or paste an exam question here..."
             multiline: True
             padding: "12dp"
-            background_color: 1, 1, 1, 1
-            foreground_color: 0.10, 0.18, 0.22, 1
+            background_color: 0.12, 0.12, 0.15, 1
+            foreground_color: 0.95, 0.95, 0.96, 1
+            cursor_color: 1.0, 0.80, 0.02, 1
             font_size: "14sp"
 
-    # --- Buttons Row ---
+    # --- Action Buttons Row ---
     BoxLayout:
         orientation: "horizontal"
         size_hint_y: None
-        height: "46dp"
-        spacing: "10dp"
+        height: "48dp"
+        spacing: "12dp"
 
         Button:
             id: predict_btn
-            text: "Predict CO & BL"
+            text: "⚡ PREDICT CO & BL"
             bold: True
             font_size: "15sp"
             background_normal: ""
-            background_color: 0.08, 0.65, 0.72, 1
+            background_color: 1.0, 0.80, 0.02, 1
+            color: 0.06, 0.06, 0.07, 1
             on_release: app.on_predict_click()
 
         Button:
             text: "Clear"
-            size_hint_x: 0.3
+            size_hint_x: 0.28
+            bold: True
             font_size: "14sp"
             background_normal: ""
-            background_color: 0.70, 0.75, 0.80, 1
-            color: 0.15, 0.25, 0.30, 1
+            background_color: 0.20, 0.20, 0.25, 1
+            color: 0.85, 0.85, 0.90, 1
             on_release: app.clear_fields()
 
     # --- Status / Loading Label ---
     Label:
         id: status_label
         text: "Ready to predict"
-        color: 0.40, 0.55, 0.62, 1
+        color: 0.60, 0.63, 0.68, 1
         font_size: "12sp"
         size_hint_y: None
         height: "18dp"
@@ -136,21 +164,21 @@ BoxLayout:
         size_hint_y: 0.28
         spacing: "12dp"
 
-        # Card 1: Course Outcome
+        # Card 1: Course Outcome (CO)
         BoxLayout:
             orientation: "vertical"
             padding: "12dp"
             spacing: "4dp"
             canvas.before:
                 Color:
-                    rgba: 1, 1, 1, 1
+                    rgba: 0.13, 0.13, 0.17, 1
                 Rectangle:
                     pos: self.pos
                     size: self.size
 
             Label:
                 text: "PREDICTED CO"
-                color: 0.40, 0.50, 0.58, 1
+                color: 0.65, 0.68, 0.72, 1
                 font_size: "11sp"
                 bold: True
                 size_hint_y: None
@@ -159,8 +187,8 @@ BoxLayout:
             Label:
                 id: co_badge
                 text: "CLO2"
-                color: 0.05, 0.55, 0.65, 1
-                font_size: "24sp"
+                color: 1.0, 0.82, 0.02, 1
+                font_size: "26sp"
                 bold: True
                 size_hint_y: None
                 height: "36dp"
@@ -168,27 +196,27 @@ BoxLayout:
             Label:
                 id: co_desc
                 text: "Analyze radiation mechanisms and antenna parameters."
-                color: 0.20, 0.30, 0.36, 1
+                color: 0.88, 0.88, 0.92, 1
                 font_size: "11sp"
                 halign: "center"
                 valign: "top"
                 text_size: self.width, None
 
-        # Card 2: Bloom's Level
+        # Card 2: Bloom's Level (BL)
         BoxLayout:
             orientation: "vertical"
             padding: "12dp"
             spacing: "4dp"
             canvas.before:
                 Color:
-                    rgba: 1, 1, 1, 1
+                    rgba: 0.13, 0.13, 0.17, 1
                 Rectangle:
                     pos: self.pos
                     size: self.size
 
             Label:
                 text: "BLOOM'S LEVEL"
-                color: 0.40, 0.50, 0.58, 1
+                color: 0.65, 0.68, 0.72, 1
                 font_size: "11sp"
                 bold: True
                 size_hint_y: None
@@ -197,8 +225,8 @@ BoxLayout:
             Label:
                 id: bl_badge
                 text: "L2"
-                color: 0.88, 0.42, 0.15, 1
-                font_size: "24sp"
+                color: 1.0, 0.65, 0.05, 1
+                font_size: "26sp"
                 bold: True
                 size_hint_y: None
                 height: "36dp"
@@ -206,20 +234,20 @@ BoxLayout:
             Label:
                 id: bl_name
                 text: "Understand"
-                color: 0.20, 0.30, 0.36, 1
+                color: 0.95, 0.95, 0.97, 1
                 font_size: "14sp"
                 bold: True
                 size_hint_y: None
                 height: "22dp"
 
-    # --- Card 3: Model & Justification ---
+    # --- Card 3: Engine & Justification ---
     BoxLayout:
         orientation: "vertical"
         padding: "10dp"
         size_hint_y: 0.18
         canvas.before:
             Color:
-                rgba: 0.90, 0.94, 0.97, 1
+                rgba: 0.10, 0.10, 0.13, 1
             Rectangle:
                 pos: self.pos
                 size: self.size
@@ -227,7 +255,7 @@ BoxLayout:
         Label:
             id: source_label
             text: "Engine: Ready"
-            color: 0.15, 0.35, 0.45, 1
+            color: 1.0, 0.80, 0.02, 1
             font_size: "11sp"
             bold: True
             size_hint_y: None
@@ -238,7 +266,7 @@ BoxLayout:
         Label:
             id: explanation_label
             text: "Predictions will automatically follow official syllabus definitions."
-            color: 0.30, 0.42, 0.48, 1
+            color: 0.75, 0.78, 0.82, 1
             font_size: "11sp"
             halign: "left"
             valign: "middle"
@@ -248,7 +276,7 @@ BoxLayout:
 
 class COBLApp(App):
     def build(self):
-        self.title = "CO-BL Predictor"
+        self.title = "CO-BL Predictor (Cyber Dark)"
         return Builder.load_string(KV)
 
     def get_subject_list(self):
@@ -261,13 +289,13 @@ class COBLApp(App):
 
         if not question:
             self.root.ids.status_label.text = "Error: Please enter an exam question first!"
-            self.root.ids.status_label.color = (0.85, 0.2, 0.2, 1)
+            self.root.ids.status_label.color = (1.0, 0.3, 0.3, 1)
             return
 
         # Disable button & show loading state
         self.root.ids.predict_btn.disabled = True
         self.root.ids.status_label.text = "Analyzing question and mapping CO/BL..."
-        self.root.ids.status_label.color = (0.08, 0.55, 0.65, 1)
+        self.root.ids.status_label.color = (1.0, 0.80, 0.02, 1)
 
         # Run in background thread to prevent UI freezing
         threading.Thread(target=self._run_async_prediction, args=(question, subject), daemon=True).start()
@@ -278,7 +306,6 @@ class COBLApp(App):
 
     @mainthread
     def update_results(self, res):
-        # Update UI with prediction output safely on the main UI thread
         self.root.ids.co_badge.text = res.get("co", "CO1")
         self.root.ids.co_desc.text = res.get("co_desc", "")
         self.root.ids.bl_badge.text = res.get("bl", "L2")
@@ -287,13 +314,13 @@ class COBLApp(App):
         self.root.ids.explanation_label.text = res.get("explanation", "")
 
         self.root.ids.status_label.text = "Prediction Complete!"
-        self.root.ids.status_label.color = (0.1, 0.6, 0.3, 1)
+        self.root.ids.status_label.color = (0.2, 0.9, 0.4, 1)
         self.root.ids.predict_btn.disabled = False
 
     def clear_fields(self):
         self.root.ids.question_input.text = ""
         self.root.ids.status_label.text = "Cleared"
-        self.root.ids.status_label.color = (0.4, 0.5, 0.6, 1)
+        self.root.ids.status_label.color = (0.6, 0.63, 0.68, 1)
 
 
 if __name__ == "__main__":
