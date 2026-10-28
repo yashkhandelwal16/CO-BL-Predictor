@@ -1,0 +1,76 @@
+{
+  "bloom_levels": {
+    "L1": {
+      "name": "Remember",
+      "description": "Recall facts, basic concepts, definitions, and formulas.",
+      "verbs": ["define", "list", "state", "identify", "recall", "name", "label", "mention", "quote", "match"]
+    },
+    "L2": {
+      "name": "Understand",
+      "description": "Explain ideas, concepts, classify information, and interpret meaning.",
+      "verbs": ["explain", "describe", "discuss", "summarize", "classify", "illustrate", "interpret", "clarify", "paraphrase"]
+    },
+    "L3": {
+      "name": "Apply",
+      "description": "Use information in new situations, solve numerical problems, and execute procedures.",
+      "verbs": ["calculate", "solve", "determine", "compute", "implement", "demonstrate", "show", "derive", "execute"]
+    },
+    "L4": {
+      "name": "Analyze",
+      "description": "Draw connections among ideas, differentiate, compare, and break concepts into parts.",
+      "verbs": ["compare", "contrast", "differentiate", "distinguish", "analyze", "examine", "categorize", "investigate"]
+    },
+    "L5": {
+      "name": "Evaluate",
+      "description": "Justify a stand or decision, critique, verify findings, and check validity.",
+      "verbs": ["evaluate", "justify", "critique", "verify", "defend", "assess", "rate", "validate", "judge"]
+    },
+    "L6": {
+      "name": "Create",
+      "description": "Produce new or original work, design architectures, algorithms, or models.",
+      "verbs": ["design", "construct", "formulate", "develop", "devise", "propose", "synthesize", "plan"]
+    }
+  },
+  "subjects": {
+    "Microwave Engineering and Antennas": {
+      "code": "EC601",
+      "cos": {
+        "CO1": "Understand fundamentals of transmission lines, wave propagation and microwave waveguides.",
+        "CO2": "Analyze radiation mechanisms, antenna parameters and radiation patterns of dipole, loop and aperture antennas.",
+        "CO3": "Design microstrip antennas, antenna arrays and evaluate impedance matching techniques.",
+        "CO4": "Evaluate microwave passive components, resonators, power dividers and directional couplers.",
+        "CO5": "Examine microwave semiconductor devices, solid-state sources, amplifiers and oscillators."
+      }
+    },
+    "Data Structures and Algorithms": {
+      "code": "CS301",
+      "cos": {
+        "CO1": "Understand time and space complexity, asymptotic notations, and array operations.",
+        "CO2": "Apply linear data structures such as stacks, queues, and linked lists to solve computational problems.",
+        "CO3": "Implement non-linear data structures including binary trees, AVL trees, and heaps.",
+        "CO4": "Analyze graph traversal algorithms (BFS, DFS), shortest path, and minimum spanning trees.",
+        "CO5": "Evaluate hashing techniques, sorting/searching algorithms, and dynamic programming solutions."
+      }
+    },
+    "Database Management Systems": {
+      "code": "CS402",
+      "cos": {
+        "CO1": "Understand relational database models, three-schema architecture, and ER modeling.",
+        "CO2": "Formulate complex SQL queries, relational algebra expressions, and database views.",
+        "CO3": "Apply normalization techniques (1NF, 2NF, 3NF, BCNF) to eliminate data redundancies.",
+        "CO4": "Analyze transaction processing, ACID properties, serializability, and concurrency control.",
+        "CO5": "Evaluate query optimization, storage structures, and indexing mechanisms like B+ trees."
+      }
+    },
+    "Machine Learning & AI": {
+      "code": "AI501",
+      "cos": {
+        "CO1": "Understand foundational concepts of artificial intelligence, search strategies, and knowledge representation.",
+        "CO2": "Apply supervised machine learning algorithms including linear regression, logistic regression, and SVM.",
+        "CO3": "Implement unsupervised learning techniques such as K-Means clustering and PCA dimensionality reduction.",
+        "CO4": "Analyze neural networks, backpropagation, and evaluate model performance using precision/recall/F1-score.",
+        "CO5": "Formulate solutions using ensemble methods, deep learning architectures, and ethical AI practices."
+      }
+    }
+  }
+}

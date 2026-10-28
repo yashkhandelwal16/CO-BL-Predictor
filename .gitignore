@@ -1,0 +1,43 @@
+# Python Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables & API Keys (DO NOT COMMIT!)
+.env
+.env.local
+.env.*.local
+
+# PyInstaller / Build outputs
+build/
+dist/
+*.spec
+
+# Logs and databases
+*.log
+history.json
+history.csv
+
+# Kivy temporary files & cache
+.kivy/
+
+# Editor / IDE configuration
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
