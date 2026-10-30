@@ -31,12 +31,14 @@ from src.courses.course_manager import (
 )
 from src.database.db_manager import DatabaseError, DatabaseManager
 from src.prediction.bloom_rules import load_bloom_config
+from src.prediction.prediction_worker import PredictionWorker
 from src.syllabus.pdf_extractor import (
     PDFExtractionError,
     extract_syllabus,
     save_syllabus_json,
 )
 from src.ui.course_dialog import CourseDialog
+from src.ui.label_review_dialog import LabelReviewDialog
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
 
 
@@ -61,6 +63,7 @@ class MainWindow(QMainWindow):
         self.database = DatabaseManager(database_path)
         self.course_manager = CourseManager(self.database)
         self.bloom_config = load_bloom_config()
+        self._prediction_worker: PredictionWorker | None = None
         self.page_stack = QStackedWidget()
 
         central_widget = QWidget()
@@ -79,6 +82,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self._build_pages()
+        self.refresh_prediction_courses()
         self.statusBar().showMessage("Welcome. Add a course to get started.")
         self.navigate("Dashboard")
 
@@ -287,6 +291,41 @@ class MainWindow(QMainWindow):
         self.course_empty_label.setVisible(not courses)
 
         self._display_selected_course(self.course_list.currentItem(), None)
+        self.refresh_prediction_courses()
+
+    def refresh_prediction_courses(self) -> None:
+        if not hasattr(self, "course_selector"):
+            return
+        selected_code = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        courses = self.course_manager.list_courses()
+        self.course_selector.blockSignals(True)
+        self.course_selector.clear()
+        for course in courses:
+            self.course_selector.addItem(
+                f"{course.name} ({course.code})", course.code
+            )
+        if selected_code:
+            selected_index = self.course_selector.findData(
+                selected_code, Qt.ItemDataRole.UserRole
+            )
+            if selected_index >= 0:
+                self.course_selector.setCurrentIndex(selected_index)
+        elif courses:
+            self.course_selector.setCurrentIndex(0)
+        self.course_selector.blockSignals(False)
+        self.course_selector.setEnabled(bool(courses))
+        self._update_prediction_button()
+
+    def _update_prediction_button(self) -> None:
+        if not hasattr(self, "predict_button"):
+            return
+        has_course = (
+            self.course_selector.currentData(Qt.ItemDataRole.UserRole) is not None
+        )
+        has_question = bool(self.question_input.toPlainText().strip())
+        self.predict_button.setEnabled(
+            has_course and has_question and self._prediction_worker is None
+        )
 
     def _selected_course_code(self) -> str | None:
         item = self.course_list.currentItem() if hasattr(self, "course_list") else None
@@ -502,36 +541,93 @@ class MainWindow(QMainWindow):
         course_label = QLabel("Course")
         course_label.setObjectName("fieldLabel")
         self.course_selector = QComboBox()
-        self.course_selector.addItem("No courses available")
+        self.course_selector.setPlaceholderText("Select a course")
         self.course_selector.setEnabled(False)
+        self.course_selector.currentIndexChanged.connect(
+            self._update_prediction_button
+        )
 
         question_label = QLabel("Examination question")
         question_label.setObjectName("fieldLabel")
         self.question_input = QTextEdit()
         self.question_input.setPlaceholderText(
-            "Enter a question after adding a course and setting up prediction."
+            "Enter an examination question to receive suggested labels."
         )
         self.question_input.setMinimumHeight(150)
+        self.question_input.textChanged.connect(self._update_prediction_button)
 
         self.predict_button = QPushButton("Predict CO and BL")
         self.predict_button.setObjectName("primaryButton")
         self.predict_button.setEnabled(False)
+        self.predict_button.clicked.connect(self._start_prediction)
 
         self.prediction_status = QLabel(
-            "Question classification is not available yet."
+            "Suggestions are intended to support faculty review."
         )
         self.prediction_status.setObjectName("noticeText")
         self.prediction_status.setWordWrap(True)
+
+        self.prediction_result = QLabel("")
+        self.prediction_result.setObjectName("predictionResult")
+        self.prediction_result.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.prediction_result.setWordWrap(True)
 
         form_layout.addWidget(course_label)
         form_layout.addWidget(self.course_selector)
         form_layout.addWidget(question_label)
         form_layout.addWidget(self.question_input)
         form_layout.addWidget(self.predict_button, 0, Qt.AlignmentFlag.AlignLeft)
+        form_layout.addWidget(self.prediction_result)
         form_layout.addWidget(self.prediction_status)
         layout.addWidget(form_card)
         layout.addStretch(1)
         return page
+
+    def _start_prediction(self) -> None:
+        course_code = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        question = self.question_input.toPlainText()
+        if not course_code or not question.strip():
+            self._update_prediction_button()
+            return
+        self.prediction_result.clear()
+        self.prediction_status.setText("Preparing a suggestion...")
+        worker = PredictionWorker(
+            self.database,
+            course_code,
+            question,
+            self.bloom_config,
+        )
+        worker.completed.connect(self._prediction_completed)
+        worker.failed.connect(self._prediction_failed)
+        worker.cancelled.connect(self._prediction_cancelled)
+        worker.finished.connect(self._prediction_worker_finished)
+        self._prediction_worker = worker
+        self._update_prediction_button()
+        worker.start()
+
+    def _prediction_completed(self, formatted_result: str) -> None:
+        self.prediction_result.setText(formatted_result)
+        self.prediction_status.setText(
+            "Suggestion ready for faculty review."
+        )
+        self.refresh_question_history()
+
+    def _prediction_failed(self, message: str) -> None:
+        self.prediction_result.clear()
+        self.prediction_status.setText(message)
+
+    def _prediction_cancelled(self) -> None:
+        if not self.prediction_result.text():
+            self.prediction_status.setText("Classification was cancelled.")
+
+    def _prediction_worker_finished(self) -> None:
+        worker = self._prediction_worker
+        self._prediction_worker = None
+        self._update_prediction_button()
+        if worker is not None:
+            worker.deleteLater()
 
     def _history_page(self) -> QWidget:
         page, layout = self._new_page(
@@ -543,6 +639,11 @@ class MainWindow(QMainWindow):
         self.history_search.textChanged.connect(self.refresh_question_history)
         toolbar.addWidget(self.history_search, 1)
 
+        self.review_question_button = QPushButton("Review selected")
+        self.review_question_button.setObjectName("secondaryButton")
+        self.review_question_button.setEnabled(False)
+        self.review_question_button.clicked.connect(self._review_selected_question)
+        toolbar.addWidget(self.review_question_button)
         backup_button = QPushButton("Back up data")
         backup_button.setObjectName("secondaryButton")
         backup_button.clicked.connect(self._backup_data)
@@ -563,6 +664,9 @@ class MainWindow(QMainWindow):
         )
         self.history_table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.history_table.itemSelectionChanged.connect(
+            self._update_review_button
         )
         self.history_table.horizontalHeader().setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
@@ -595,8 +699,58 @@ class MainWindow(QMainWindow):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(value)
                 item.setToolTip(value)
+                if column == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, record)
                 self.history_table.setItem(row, column, item)
         self.history_empty_label.setVisible(not records)
+        self._update_review_button()
+
+    def _update_review_button(self) -> None:
+        self.review_question_button.setEnabled(
+            self.history_table.currentRow() >= 0
+        )
+
+    def _review_selected_question(self) -> None:
+        row = self.history_table.currentRow()
+        item = self.history_table.item(row, 0) if row >= 0 else None
+        record = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not record:
+            return
+
+        dialog = LabelReviewDialog(
+            question_text=record["question_text"],
+            predicted_co=record["predicted_co"],
+            predicted_bl=record["predicted_bl"],
+            approved_co=record["approved_co"],
+            approved_bl=record["approved_bl"],
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        review_status = (
+            "corrected"
+            if record["prediction_id"] is not None
+            and (
+                dialog.co_label != record["predicted_co"]
+                or dialog.bl_label != record["predicted_bl"]
+            )
+            else "approved"
+        )
+        try:
+            self.database.save_approved_labels(
+                record["question_id"],
+                dialog.co_label,
+                dialog.bl_label,
+                prediction_id=record["prediction_id"],
+                review_status=review_status,
+                reviewed_by=dialog.reviewed_by or None,
+                review_note=dialog.review_note or None,
+            )
+        except (DatabaseError, ValueError) as error:
+            QMessageBox.critical(self, "Review could not be saved", str(error))
+            return
+        self.refresh_question_history()
 
     @staticmethod
     def _labels_text(co_label: str | None, bl_label: str | None) -> str:
@@ -645,6 +799,9 @@ class MainWindow(QMainWindow):
         )
 
     def close_storage(self) -> None:
+        if self._prediction_worker is not None:
+            self._prediction_worker.cancel()
+            self._prediction_worker.wait()
         self.database.close()
 
     def _new_page(self, heading: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:

@@ -675,6 +675,7 @@ class DatabaseManager:
         statement = """
             SELECT q.id AS question_id, q.question_text, q.marks, q.question_type,
                    q.created_at, c.course_name, c.course_code,
+                   p.id AS prediction_id,
                    p.co_label AS predicted_co, p.bl_label AS predicted_bl,
                    p.model_name, p.model_version, p.provider_name,
                    a.co_label AS approved_co, a.bl_label AS approved_bl,

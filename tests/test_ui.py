@@ -56,14 +56,35 @@ def test_navigation_changes_page_and_header() -> None:
     assert window.navigation_buttons["Predict"].isChecked()
 
 
-def test_question_classification_is_not_misrepresented_as_available() -> None:
+def test_prediction_requires_a_course_and_question() -> None:
     get_application()
     window = MainWindow()
 
     assert not window.predict_button.isEnabled()
-    assert "not available yet" in window.prediction_status.text()
+    assert window.course_selector.count() == 0
+
+    outcomes = {
+        outcome_id: f"Description for {outcome_id}"
+        for outcome_id in COURSE_OUTCOME_IDS
+    }
+    window.course_manager.add_course("Computer Networks", "CS305", outcomes)
+    window.refresh_course_list()
     assert window.course_selector.count() == 1
-    assert window.course_selector.itemText(0) == "No courses available"
+    assert window.course_selector.currentData(Qt.ItemDataRole.UserRole) == "CS305"
+    assert not window.predict_button.isEnabled()
+
+    window.question_input.setPlainText("Explain network routing.")
+    assert window.predict_button.isEnabled()
+
+
+def test_prediction_result_displays_only_the_required_two_lines() -> None:
+    get_application()
+    window = MainWindow()
+
+    window._prediction_completed("CO level-CO2\nBL level - BL3")
+
+    assert window.prediction_result.text() == "CO level-CO2\nBL level - BL3"
+    assert window.prediction_status.text() == "Suggestion ready for faculty review."
 
 
 def test_end_user_interface_hides_implementation_details() -> None:
@@ -179,6 +200,61 @@ def test_persistent_window_restores_courses_syllabi_and_question_history(
     assert restarted_window.history_table.item(0, 3).text() == "CO3 / BL3"
     assert restarted_window.history_table.item(0, 4).text() == "corrected"
     restarted_window.close_storage()
+
+
+def test_faculty_review_saves_correction_without_changing_prediction(
+    monkeypatch,
+) -> None:
+    get_application()
+    window = MainWindow()
+    outcomes = {
+        outcome_id: f"Description for {outcome_id}"
+        for outcome_id in COURSE_OUTCOME_IDS
+    }
+    window.course_manager.add_course("Computer Networks", "CS305", outcomes)
+    question = window.database.create_question(
+        "CS305", "Compare two routing algorithms."
+    )
+    prediction = window.database.create_prediction(
+        question["id"], "CO2", "BL2"
+    )
+    window.refresh_question_history()
+
+    assert not window.review_question_button.isEnabled()
+    window.history_table.selectRow(0)
+    assert window.review_question_button.isEnabled()
+
+    def accept_correction(dialog):
+        dialog.co_selector.setCurrentText("CO3")
+        dialog.bl_selector.setCurrentText("BL3")
+        dialog.reviewer_input.setText("Faculty reviewer")
+        dialog.review_note_input.setPlainText("Reviewed against the syllabus.")
+        return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(
+        main_window_module.LabelReviewDialog, "exec", accept_correction
+    )
+    window.review_question_button.click()
+
+    history = window.database.list_question_history()
+    assert history[0]["predicted_co"] == "CO2"
+    assert history[0]["predicted_bl"] == "BL2"
+    assert history[0]["approved_co"] == "CO3"
+    assert history[0]["approved_bl"] == "BL3"
+    assert history[0]["label_review_status"] == "corrected"
+    with window.database._lock:
+        saved = window.database._connection.execute(
+            "SELECT prediction_id, review_status, reviewed_by, review_note "
+            "FROM approved_labels WHERE question_id = ?",
+            (question["id"],),
+        ).fetchone()
+    assert tuple(saved) == (
+        prediction["id"],
+        "corrected",
+        "Faculty reviewer",
+        "Reviewed against the syllabus.",
+    )
+    window.close_storage()
 
 
 def test_course_delete_requires_confirmation(monkeypatch) -> None:

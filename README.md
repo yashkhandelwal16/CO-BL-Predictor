@@ -36,16 +36,14 @@ application.
 - scikit-learn for TF-IDF and cosine-similarity retrieval.
 - pytest for automated tests and PyInstaller for Windows packaging.
 
-The app must not require a cloud API or Ollama. A model candidate is specified,
-but its exact repository, GGUF filename, license, checksum, runtime
-compatibility, and redistribution terms have not yet been verified. Do not
-download or bundle an assumed model file; resolve and document those details
-before model integration and redistribution.
+The app must not require a cloud API or Ollama. Phase 6 identifies the official
+GGUF file and its Apache-2.0 license and implements a local inference client.
+Model weights are not bundled in the source repository; download them
+separately as described below.
 
-`requirements.txt` lists the target Python packages. In particular,
-`llama-cpp-python` includes native components whose compatible Windows build
-must be verified during the model-integration phase. These dependencies have
-not yet been installed or certified in this workspace.
+`requirements.txt` lists the target Python packages. The `llama-cpp-python`
+version is pinned to the CPU runtime verified in the existing Python 3.12
+environment.
 
 ## Architecture and data flow
 
@@ -157,7 +155,13 @@ Run the app from PowerShell in the project folder:
 .\venv\Scripts\python.exe main.py
 ```
 
-Run the project tests:
+Install project dependencies in the existing virtual environment:
+
+```powershell
+.\venv\Scripts\python.exe -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -r requirements.txt
+```
+
+Then run the project tests:
 
 ```powershell
 .\venv\Scripts\python.exe -m pytest
@@ -174,9 +178,9 @@ review of course details, units, topics, and outcomes. Reviewed JSON and
 versioned syllabus metadata are saved in the per-user application data folder;
 the original PDF remains in its original location. Unclear or missing fields
 are flagged. Scanned PDFs without selectable text are reported; OCR is not
-included. The History screen displays saved question records and offers data
-backup and JSON export. Prediction and faculty review workflows are not yet
-available in the interface.
+included. The Predict screen can produce local suggested labels for faculty
+review, and the History screen displays saved question records and offers data
+backup and JSON export. A faculty correction workflow is not yet available.
 
 On Windows, the application data folder is
 `%LOCALAPPDATA%\\CO-BL-Predictor`. It contains the database and reviewed
@@ -203,10 +207,134 @@ py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-The PySide6 UI dependencies were installed into the existing ignored `venv`.
-The full target dependency set and Python 3.11 compatibility have not yet been
-verified. Do not install the native inference dependency or download a model
-until the exact model/runtime combination has been checked in Phase 6.
+The existing development environment uses Python 3.12.4. Python 3.11 remains
+the target interpreter and still needs its own compatibility verification.
+
+## Phase 6 — Install and verify the local model
+
+The verified model is Qwen2.5-0.5B-Instruct Q4_K_M from the official
+[Qwen GGUF repository](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF).
+The repository publishes it under Apache-2.0. The model file is about 491 MB;
+it is not included in Git or the application source distribution.
+
+From PowerShell in the project folder, download only the Q4_K_M file:
+
+```powershell
+New-Item -ItemType Directory -Force .\models | Out-Null
+curl.exe --fail --location --output .\models\qwen2.5-0.5b-instruct-q4_k_m.gguf "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true"
+```
+
+Verify the downloaded size and SHA-256 before using it:
+
+```powershell
+Get-Item .\models\qwen2.5-0.5b-instruct-q4_k_m.gguf | Select-Object Name,Length
+Get-FileHash .\models\qwen2.5-0.5b-instruct-q4_k_m.gguf -Algorithm SHA256
+```
+
+Expected size: `491400032` bytes. Expected SHA-256:
+`74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db`.
+The hash is the official Hugging Face LFS object digest for this exact file.
+
+First try the prebuilt Windows CPU wheel and install the project dependencies:
+
+```powershell
+.\venv\Scripts\python.exe -m pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -r requirements.txt
+.\venv\Scripts\python.exe -c "import llama_cpp; print(llama_cpp.__version__)"
+```
+
+If the wheel download is unavailable, the runtime was also built successfully
+from its PyPI source distribution using MinGW-w64 (MSYS2 UCRT64 GCC 14.2.0).
+This takes several minutes and requires the MinGW compiler and make program to
+be on `PATH`; CMake and the Python build dependencies are fetched by pip:
+
+```powershell
+$env:CMAKE_GENERATOR = "MinGW Makefiles"
+$env:CMAKE_ARGS = "-DGGML_NATIVE=OFF"
+$env:CXXFLAGS = "-D_WIN32_WINNT=0x0A00"
+.\venv\Scripts\python.exe -m pip install --no-binary=llama-cpp-python --no-cache-dir llama-cpp-python==0.3.19
+Remove-Item Env:CMAKE_GENERATOR,Env:CMAKE_ARGS,Env:CXXFLAGS
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+Alternatively, on Python 3.12 x64, download
+[`llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl`](https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.19/llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl)
+in a browser and save it under `wheelhouse` in the project folder. Install it
+locally, then install the remaining project dependencies:
+
+```powershell
+New-Item -ItemType Directory -Force .\wheelhouse | Out-Null
+.\venv\Scripts\python.exe -m pip install .\wheelhouse\llama_cpp_python-0.3.19-cp312-cp312-win_amd64.whl
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+That wheel is for 64-bit CPython 3.12 on Windows. Do not use it with Python
+3.11 or a 32-bit interpreter.
+
+The `llama-cpp-python` package is MIT-licensed and contains native llama.cpp
+components. The prebuilt Windows x64 CPU wheel does not need a separately installed
+compiler or Ollama. When redistributing the runtime, include the applicable
+package/native-library notices and verify the target computer has the native
+runtime required by the chosen wheel/build.
+
+### Where to configure the model later
+
+The model configuration lives in `src/ai/llm_client.py`:
+
+- `default_model_path()` chooses
+  `models\qwen2.5-0.5b-instruct-q4_k_m.gguf` by default.
+- `LLMClient(model_path=..., context_length=..., threads=...)` can override
+  the model path and CPU settings in code.
+- Environment variables override the defaults without changing code:
+  `CO_BL_MODEL_PATH`, `CO_BL_MODEL_CONTEXT`, and `CO_BL_MODEL_THREADS`.
+
+The client loads the model lazily, only when `chat()` is called. The desktop
+application does not load the model at startup or expose model settings in its
+UI. The Predict screen uses this client to suggest CO and BL labels after a
+course and question are selected. You can leave the model configuration alone
+unless you need to use a different model file or CPU settings.
+
+For a one-time PowerShell session, set these before launching the app:
+
+```powershell
+$env:CO_BL_MODEL_PATH = "D:\LocalModels\qwen2.5-0.5b-instruct-q4_k_m.gguf"
+$env:CO_BL_MODEL_CONTEXT = "2048"
+$env:CO_BL_MODEL_THREADS = "4"
+```
+
+For persistent Windows user-level values, run this once and restart VS Code
+and the app:
+
+```powershell
+[Environment]::SetEnvironmentVariable("CO_BL_MODEL_PATH", "D:\LocalModels\qwen2.5-0.5b-instruct-q4_k_m.gguf", "User")
+[Environment]::SetEnvironmentVariable("CO_BL_MODEL_CONTEXT", "2048", "User")
+[Environment]::SetEnvironmentVariable("CO_BL_MODEL_THREADS", "4", "User")
+```
+
+Use the full path to the `.gguf` file for `CO_BL_MODEL_PATH`. You may omit
+these settings to use the default path and CPU thread count.
+
+Run the local model test:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -q tests\test_llm_client.py
+```
+
+When the GGUF file and runtime are installed, the real-model tests load the
+model and run prompts while blocking Python socket connection APIs during
+inference. The Predict screen runs model loading and inference in a background
+worker so the interface remains responsive. Cancellation and timeouts are
+cooperative between generated tokens; llama.cpp cannot interrupt prompt
+evaluation or a token currently running in native code. Run both test modules
+with:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -q tests\test_llm_client.py tests\test_predictor.py
+```
+
+The inference client performs no network calls. The real-model test blocks
+Python socket connection APIs while it loads and runs the model. For an
+additional OS-level offline check, disconnect from the internet after
+installing the model and runtime, then rerun the model test.
 
 ## Phase status
 
@@ -225,4 +353,20 @@ until the exact model/runtime combination has been checked in Phase 6.
 - Phase 5 — SQLite persistence: versioned schema, course and syllabus
   persistence, question/prediction/review storage, History display, backup,
   export, and restart behavior implemented and tested.
-- Phases 6–10 — Not started.
+- Phase 6 — Local Qwen/llama.cpp integration: complete. The official Q4_K_M
+  model is downloaded and checksum-verified; the CPU runtime is installed;
+  configuration, failure handling, background execution, cancellation, and
+  timeout are implemented and covered. Real-model prompts passed with Python
+  socket connections blocked under Python 3.12.
+- Phase 7 — Core CO/BL prediction: separate structured prompts, strict label
+  validation with independent `N/A` fallbacks, reviewed syllabus context,
+  SQLite prediction metadata, and the asynchronous Predict UI are implemented
+  and tested.
+- Phase 8 — Approved-example retrieval and review: faculty can approve or
+  correct saved suggestions in History; original predictions remain unchanged.
+  Same-course reviewed examples are ranked with TF-IDF and cosine similarity,
+  and only examples above the minimum similarity threshold enter prediction
+  context. The retrieval index is rebuilt from current reviews per prediction,
+  so new corrections are immediately available. This supplies context; it does
+  not train or fine-tune the local model.
+- Phases 9–10 — Not started.

@@ -25,6 +25,7 @@ data/syllabi/
 data/parsed_json/
 data/exports/
 models/
+wheelhouse/
 *.gguf
 *.ggml
 *.db
