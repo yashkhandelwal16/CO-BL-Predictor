@@ -168,6 +168,44 @@ def test_empty_question_is_rejected_without_model_or_database_records(tmp_path):
     database.close()
 
 
+def test_missing_course_outcome_stops_before_inference(tmp_path, monkeypatch):
+    database = make_database(tmp_path)
+    course = database.get_course("CS305")
+    assert course is not None
+    incomplete_course = dict(course)
+    incomplete_course["course_outcomes"] = dict(course["course_outcomes"])
+    incomplete_course["course_outcomes"].pop("CO4")
+    monkeypatch.setattr(
+        database, "get_course", lambda _course_code: incomplete_course
+    )
+    client = FakeChatClient(["CO1", "BL1"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    with pytest.raises(PredictionInputError, match="descriptions for CO1 through CO4"):
+        predictor.predict("CS305", "Explain how routers forward packets.")
+
+    assert client.messages == []
+    assert database.list_question_history() == []
+    database.close()
+
+
+def test_long_unicode_question_is_preserved_and_formatted(tmp_path):
+    database = make_database(tmp_path)
+    question_text = (
+        "分析网络路由：用 Dijkstra 算法计算最短路径。"
+        "📡 Δ-router → node β. " * 1200
+    )
+    client = FakeChatClient(["CO2", "BL3"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("CS305", question_text)
+
+    assert result.format_output() == "CO level-CO2\nBL level - BL3"
+    assert database.list_question_history()[0]["question_text"] == question_text.strip()
+    assert question_text.strip() in client.messages[0][0][1]["content"]
+    database.close()
+
+
 def test_missing_course_is_rejected_before_model_call(tmp_path):
     database = make_database(tmp_path)
     client = FakeChatClient(["CO1", "BL1"])

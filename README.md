@@ -338,6 +338,56 @@ Python socket connection APIs while it loads and runs the model. For an
 additional OS-level offline check, disconnect from the internet after
 installing the model and runtime, then rerun the model test.
 
+## Phase 9 — Quality checks and held-out evaluation
+
+Run the automated checks with:
+
+```powershell
+.\venv\Scripts\python.exe -m pytest -q
+.\venv\Scripts\python.exe -m compileall -q src tests
+.\venv\Scripts\python.exe -m pip check
+```
+
+The suite covers text and scanned PDFs, password-protected PDFs, syllabus
+validation, course and database persistence, malformed labels, independent
+`N/A` fallbacks, missing outcomes/model files, long Unicode questions, and
+network-socket blocking for local inference.
+
+To report accuracy, prepare a UTF-8 JSON Lines file from a faculty-labelled,
+held-out set. Each line must contain `expected_co`, `predicted_co`,
+`expected_bl`, and `predicted_bl`. Expected labels must be CO1–CO4 and
+BL0–BL4; predictions may also be `N/A`. Keep examples used for prompt design
+or retrieval out of the held-out set, and do not treat unreviewed model
+predictions as ground truth. Questions may be omitted from this metrics file;
+if included, keep the file local because it can contain private assessment
+content.
+
+```powershell
+.\venv\Scripts\python.exe -m src.evaluation.evaluate_predictions `
+  .\data\evaluation\held-out.jsonl `
+  --output .\data\evaluation\metrics.json
+```
+
+The report contains separate CO and BL accuracy, precision, recall and F1 for
+each supported label, macro-F1 over the complete label set, and `N/A`
+abstention counts and rates. No faculty-labelled held-out dataset is currently
+included in this repository, so the evaluator intentionally does not report
+academic accuracy until one is supplied.
+
+Measure local inference latency and process working-set memory on the target
+machine with:
+
+```powershell
+.\venv\Scripts\python.exe -m scripts.benchmark_inference
+```
+
+This performs one cold-start local inference and blocks Python socket
+connections. In this development environment, one run took 3.253 seconds
+including model load and reached a 545,140,736-byte peak process working set
+(about 520 MiB). This is a single-run observation, not a performance guarantee;
+repeat it on the target computer for representative results. Python socket
+blocking is not a substitute for an OS-level disconnected-network test.
+
 ## Phase status
 
 - Phase 0 — Workspace audit, requirements, project rules, and architecture:
@@ -371,4 +421,9 @@ installing the model and runtime, then rerun the model test.
   context. The retrieval index is rebuilt from current reviews per prediction,
   so new corrections are immediately available. This supplies context; it does
   not train or fine-tune the local model.
-- Phases 9–10 — Not started.
+- Phase 9 — Automated tests, held-out CO/BL metric reporting, and a local
+  latency/memory benchmark are implemented. The full test suite and local
+  benchmark passed. A real faculty-labelled held-out set and OS-level
+  disconnected-network test are still required before academic accuracy or
+  fully offline operation can be certified.
+- Phase 10 — Not started.

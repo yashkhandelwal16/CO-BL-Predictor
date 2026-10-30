@@ -118,6 +118,23 @@ def test_empty_or_scanned_pdf_reports_no_selectable_text(tmp_path) -> None:
         extract_syllabus(pdf_path)
 
 
+def test_password_protected_pdf_reports_that_it_cannot_be_read(tmp_path) -> None:
+    pdf_path = tmp_path / "protected.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Course Code: CS305")
+    document.save(
+        pdf_path,
+        encryption=pymupdf.PDF_ENCRYPT_AES_256,
+        owner_pw="owner-secret",
+        user_pw="user-secret",
+    )
+    document.close()
+
+    with pytest.raises(PDFExtractionError, match="password-protected"):
+        extract_syllabus(pdf_path)
+
+
 def test_invalid_and_missing_pdf_are_reported(tmp_path) -> None:
     with pytest.raises(PDFExtractionError, match="does not exist"):
         extract_syllabus(tmp_path / "missing.pdf")
