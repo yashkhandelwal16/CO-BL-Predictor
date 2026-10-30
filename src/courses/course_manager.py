@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.database.db_manager import (
+    DatabaseError,
+    DatabaseManager,
+    DuplicateCourseCodeError,
+)
+
 
 COURSE_OUTCOME_IDS = ("CO1", "CO2", "CO3", "CO4")
 
@@ -18,32 +24,21 @@ class Course:
 
 
 class CourseManager:
-    """Manage course records in memory until the SQLite phase is implemented."""
+    """Validate course data and persist it through the local database layer."""
 
-    def __init__(self) -> None:
-        self._courses: dict[str, Course] = {}
+    def __init__(self, database: DatabaseManager | None = None) -> None:
+        self._owns_database = database is None
+        self.database = database or DatabaseManager()
 
     def list_courses(self) -> list[Course]:
-        return sorted(
-            self._courses.values(),
-            key=lambda course: (course.name.casefold(), course.code),
-        )
+        return [self._as_course(record) for record in self.database.list_courses()]
 
     def get_course(self, code: str) -> Course | None:
-        normalized_code = self._normalize_code(code)
-        return self._courses.get(normalized_code)
+        record = self.database.get_course(self._normalize_code(code))
+        return self._as_course(record) if record is not None else None
 
     def search(self, query: str) -> list[Course]:
-        search_text = query.strip().casefold()
-        if not search_text:
-            return self.list_courses()
-
-        return [
-            course
-            for course in self.list_courses()
-            if search_text in course.name.casefold()
-            or search_text in course.code.casefold()
-        ]
+        return [self._as_course(record) for record in self.database.list_courses(query)]
 
     def add_course(
         self,
@@ -53,13 +48,18 @@ class CourseManager:
         syllabus_pdf: str | None = None,
     ) -> Course:
         course = self._validated_course(name, code, course_outcomes, syllabus_pdf)
-        if course.code in self._courses:
-            raise CourseValidationError(
-                f"A course with code {course.code} already exists."
+        try:
+            record = self.database.save_course(
+                course.name,
+                course.code,
+                course.course_outcomes,
+                course.syllabus_pdf,
             )
-
-        self._courses[course.code] = course
-        return course
+        except DuplicateCourseCodeError as error:
+            raise CourseValidationError(str(error)) from error
+        except DatabaseError as error:
+            raise CourseValidationError(f"Course could not be saved: {error}") from error
+        return self._as_course(record)
 
     def update_course(
         self,
@@ -70,22 +70,46 @@ class CourseManager:
         syllabus_pdf: str | None = None,
     ) -> Course:
         original_key = self._normalize_code(original_code)
-        if original_key not in self._courses:
+        if self.database.get_course(original_key) is None:
             raise CourseValidationError("The course to edit no longer exists.")
 
         course = self._validated_course(name, code, course_outcomes, syllabus_pdf)
-        if course.code != original_key and course.code in self._courses:
-            raise CourseValidationError(
-                f"A course with code {course.code} already exists."
+        try:
+            record = self.database.save_course(
+                course.name,
+                course.code,
+                course.course_outcomes,
+                course.syllabus_pdf,
+                original_code=original_key,
             )
-
-        del self._courses[original_key]
-        self._courses[course.code] = course
-        return course
+        except DuplicateCourseCodeError as error:
+            raise CourseValidationError(str(error)) from error
+        except DatabaseError as error:
+            raise CourseValidationError(f"Course could not be saved: {error}") from error
+        return self._as_course(record)
 
     def delete_course(self, code: str) -> bool:
-        normalized_code = self._normalize_code(code)
-        return self._courses.pop(normalized_code, None) is not None
+        try:
+            return self.database.delete_course(self._normalize_code(code))
+        except DatabaseError as error:
+            raise CourseValidationError(f"Course could not be deleted: {error}") from error
+
+    def close(self) -> None:
+        if self._owns_database:
+            self.database.close()
+
+    @staticmethod
+    def _as_course(record: dict[str, object]) -> Course:
+        return Course(
+            name=str(record["course_name"]),
+            code=str(record["course_code"]),
+            course_outcomes=dict(record["course_outcomes"]),
+            syllabus_pdf=(
+                str(record["syllabus_pdf"])
+                if record["syllabus_pdf"] is not None
+                else None
+            ),
+        )
 
     @classmethod
     def _validated_course(

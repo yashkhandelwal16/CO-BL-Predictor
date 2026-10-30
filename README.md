@@ -5,9 +5,10 @@ and Bloom-style (BL) labels for examination questions. The application is an
 academic aid: faculty review remains authoritative, and the model must never
 answer the examination question.
 
-## Phase 0 project audit
+## Initial project audit (Phase 0)
 
-The current codebase is a prototype, not yet the target application:
+This records the workspace state at the start of the project, before the
+migration began:
 
 - `main.py` contains a Kivy desktop UI.
 - `predictor.py` contains keyword prediction and an optional OpenRouter client.
@@ -21,11 +22,8 @@ The current codebase is a prototype, not yet the target application:
 - There are no official syllabus PDFs, model files, database, or automated
   tests in the workspace.
 
-These are facts about the existing prototype, not claims that the target
-features are already implemented. Phase 1 will replace the Kivy interface with
-PySide6 and remove the prototype's cloud-provider behavior. Until then, the
-target dependency manifest below does not make the legacy Kivy application
-runnable in a new environment.
+These are historical audit findings, not a description of the current
+application.
 
 ## Target technology and requirements
 
@@ -124,11 +122,9 @@ modules or move the prototype wholesale before the relevant phase.
 
 ## Privacy and Git
 
-The target architecture is local-only: it must not upload syllabi, questions,
-or other user data. Keep API keys, private PDFs, generated parsed data,
-database files, exports, and model binaries out of Git. The current prototype
-still has an optional OpenRouter path until Phase 1 removes it. Do not commit
-`.env` or use that prototype with confidential data.
+The application is designed to work locally and must not upload syllabi,
+questions, or other user data. Keep private PDFs, generated parsed data,
+database files, exports, and model binaries out of Git.
 
 ## Development phases
 
@@ -148,9 +144,9 @@ Android is a later, separate feasibility effort after the Windows application
 is stable. Do not assume that the desktop model runtime can run in an Android
 package.
 
-## Run the Phase 1 interface
+## Run the application
 
-The Phase 1 shell is implemented with PySide6. The current machine has Python
+The desktop application uses PySide6. The current machine has Python
 3.12.4, and the UI has been tested in the existing `venv` with that interpreter.
 Python 3.11 is the target version but is not currently installed; this means
 the target interpreter has not yet been verified.
@@ -169,16 +165,25 @@ Run the project tests:
 
 The Courses screen supports create, edit, delete, and name/code search. It
 requires a name, a unique course code, and four separate CO descriptions.
-Course records are currently kept for the open session only. Selecting a
-syllabus PDF in the course form extracts clearly labelled COs for faculty to
-review and edit before saving.
+Courses and their CO descriptions persist between application launches.
+Selecting a syllabus PDF in the course form extracts clearly labelled COs for
+faculty to review and edit before saving.
 
 The Syllabus screen extracts text from text-based PDFs and opens an editable
-review of course details, units, topics, and outcomes. Save writes reviewed
-JSON under `data/parsed_json/`; the original PDF is left in its original
-location. Unclear or missing fields are flagged. Scanned PDFs without selectable
-text are reported; OCR is not included. History remains an empty setup state,
-and question classification is not available yet.
+review of course details, units, topics, and outcomes. Reviewed JSON and
+versioned syllabus metadata are saved in the per-user application data folder;
+the original PDF remains in its original location. Unclear or missing fields
+are flagged. Scanned PDFs without selectable text are reported; OCR is not
+included. The History screen displays saved question records and offers data
+backup and JSON export. Prediction and faculty review workflows are not yet
+available in the interface.
+
+On Windows, the application data folder is
+`%LOCALAPPDATA%\\CO-BL-Predictor`. It contains the database and reviewed
+syllabus JSON files. Use **Back up data** from History to create a database
+backup, or **Export data** to save a JSON copy of the stored records. These
+files may contain private academic information; store and share them
+appropriately.
 
 PyMuPDF is distributed under AGPL-3.0 or a commercial license. Review its
 licensing terms before distributing this application.
@@ -209,13 +214,15 @@ until the exact model/runtime combination has been checked in Phase 6.
   complete.
 - Phase 1 — PySide6 GUI: implemented and smoke-tested under Python 3.12.4;
   Python 3.11 setup remains blocked until that interpreter is installed.
-- Phase 2 — Course management: in-memory create/edit/delete/search and
--  independent CO1–CO4 fields implemented and tested. Course persistence is
-  deferred to Phase 5.
+- Phase 2 — Course management: create/edit/delete/search and independent
+  CO1–CO4 fields implemented and tested.
 - Phase 3 — PDF extraction and reviewable JSON: implemented for text-based
   PDFs, with editable details, unit/topic and outcome tables, page references,
   warnings, validation, and source-file preservation.
 - Phase 4 — Custom BL0–BL4 configuration and keyword evidence: implemented.
   Definitions remain draft/unverified until institution-approved rules are
   supplied. Settings UI remains excluded.
-- Phases 5–10 — Not started.
+- Phase 5 — SQLite persistence: versioned schema, course and syllabus
+  persistence, question/prediction/review storage, History display, backup,
+  export, and restart behavior implemented and tested.
+- Phases 6–10 — Not started.

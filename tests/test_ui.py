@@ -125,6 +125,62 @@ def test_course_page_lists_and_filters_courses() -> None:
     assert window.course_detail_name.text() == "Database Systems"
 
 
+def test_persistent_window_restores_courses_syllabi_and_question_history(
+    tmp_path,
+) -> None:
+    get_application()
+    database_path = tmp_path / "predictor.sqlite3"
+    first_window = MainWindow(database_path)
+    outcomes = {
+        outcome_id: f"Description for {outcome_id}"
+        for outcome_id in COURSE_OUTCOME_IDS
+    }
+    first_window.course_manager.add_course(
+        "Computer Networks", "CS305", outcomes
+    )
+    syllabus_path = tmp_path / "networks.pdf"
+    first_window.database.save_syllabus_version(
+        {
+            "course_name": "Computer Networks",
+            "course_code": "CS305",
+            "source_file": str(syllabus_path),
+            "course_outcomes": [
+                {"id": outcome_id, "description": outcomes[outcome_id]}
+                for outcome_id in COURSE_OUTCOME_IDS
+            ],
+            "units": [],
+            "review_status": "reviewed",
+        },
+        tmp_path / "networks.json",
+    )
+    question = first_window.database.create_question(
+        "CS305", "Explain packet routing."
+    )
+    prediction = first_window.database.create_prediction(
+        question["id"], "CO2", "BL2"
+    )
+    first_window.database.save_approved_labels(
+        question["id"],
+        "CO3",
+        "BL3",
+        prediction_id=prediction["id"],
+        review_status="corrected",
+    )
+    first_window.close_storage()
+
+    restarted_window = MainWindow(database_path)
+
+    assert restarted_window.course_list.count() == 1
+    restored_course = restarted_window.course_manager.get_course("CS305")
+    assert restored_course is not None
+    assert restored_course.course_outcomes == outcomes
+    assert restarted_window.syllabus_versions_list.count() == 1
+    assert restarted_window.history_table.rowCount() == 1
+    assert restarted_window.history_table.item(0, 3).text() == "CO3 / BL3"
+    assert restarted_window.history_table.item(0, 4).text() == "corrected"
+    restarted_window.close_storage()
+
+
 def test_course_delete_requires_confirmation(monkeypatch) -> None:
     get_application()
     window = MainWindow()
@@ -310,7 +366,7 @@ def test_syllabus_import_reviews_and_saves_structured_data(
     saved_records = []
     saved_path = tmp_path / "reviewed.json"
 
-    def save_review(data):
+    def save_review(data, output_directory=None):
         saved_records.append(data)
         return saved_path
 

@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -15,6 +16,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QComboBox,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -26,6 +29,7 @@ from src.courses.course_manager import (
     CourseManager,
     CourseValidationError,
 )
+from src.database.db_manager import DatabaseError, DatabaseManager
 from src.prediction.bloom_rules import load_bloom_config
 from src.syllabus.pdf_extractor import (
     PDFExtractionError,
@@ -45,7 +49,7 @@ class MainWindow(QMainWindow):
         ("History", "History"),
     )
 
-    def __init__(self) -> None:
+    def __init__(self, database_path: str | Path = ":memory:") -> None:
         super().__init__()
         self.setWindowTitle("CO & BL Predictor")
         self.setMinimumSize(980, 640)
@@ -54,7 +58,8 @@ class MainWindow(QMainWindow):
 
         self.navigation_buttons: dict[str, QPushButton] = {}
         self.pages: dict[str, QWidget] = {}
-        self.course_manager = CourseManager()
+        self.database = DatabaseManager(database_path)
+        self.course_manager = CourseManager(self.database)
         self.bloom_config = load_bloom_config()
         self.page_stack = QStackedWidget()
 
@@ -313,6 +318,14 @@ class MainWindow(QMainWindow):
         self.course_detail_name.setText(course.name)
         self.course_detail_code.setText(f"Course code: {course.code}")
         syllabus = Path(course.syllabus_pdf).name if course.syllabus_pdf else "Not attached"
+        versions = self.database.list_syllabus_versions(course.code)
+        if versions:
+            latest = versions[0]
+            syllabus = (
+                f"{Path(latest['source_pdf_path']).name} · "
+                f"Version {latest['version_number']} · "
+                f"{latest['review_status'].title()}"
+            )
         self.course_detail_syllabus.setText(f"Syllabus PDF: {syllabus}")
         for outcome_id, label in self.course_outcome_labels.items():
             label.setText(f"{outcome_id}: {course.course_outcomes[outcome_id]}")
@@ -357,14 +370,19 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Delete course",
-            f"Delete {course.name} ({course.code}) and its course outcome details?",
+            f"Delete {course.name} ({course.code}), including its syllabus "
+            "versions, questions, and review history?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        self.course_manager.delete_course(course.code)
+        try:
+            self.course_manager.delete_course(course.code)
+        except CourseValidationError as error:
+            QMessageBox.critical(self, "Course could not be deleted", str(error))
+            return
         self.refresh_course_list()
         self.statusBar().showMessage(f"Deleted course {course.code}.", 4000)
 
@@ -388,6 +406,8 @@ class MainWindow(QMainWindow):
         self.syllabus_file_label = QLabel("No syllabus reviewed")
         self.syllabus_file_label.setObjectName("mutedText")
         self.syllabus_file_label.setWordWrap(True)
+        self.syllabus_versions_list = QListWidget()
+        self.syllabus_versions_list.setObjectName("syllabusVersions")
 
         choose_button = QPushButton("Import syllabus")
         choose_button.setObjectName("primaryButton")
@@ -397,7 +417,10 @@ class MainWindow(QMainWindow):
         card_layout.addWidget(description)
         card_layout.addWidget(self.syllabus_file_label)
         card_layout.addWidget(choose_button, 0, Qt.AlignmentFlag.AlignLeft)
+        card_layout.addWidget(QLabel("Recently reviewed syllabi"))
+        card_layout.addWidget(self.syllabus_versions_list)
         layout.addWidget(card)
+        self.refresh_syllabus_versions()
         layout.addStretch(1)
         return page
 
@@ -423,21 +446,48 @@ class MainWindow(QMainWindow):
 
         reviewed_data = dialog.syllabus_data()
         try:
-            saved_path = save_syllabus_json(reviewed_data)
-        except (OSError, ValueError) as error:
+            output_directory = (
+                self.database.user_data_directory / "parsed_syllabi"
+                if self.database.user_data_directory
+                else None
+            )
+            saved_path = save_syllabus_json(reviewed_data, output_directory)
+            version = self.database.save_syllabus_version(
+                reviewed_data,
+                saved_path,
+            )
+        except (DatabaseError, OSError, ValueError) as error:
             QMessageBox.critical(
                 self,
                 "Syllabus could not be saved",
-                f"Check the syllabus details and available storage, then try again.\n\n{error}",
+                f"Check the syllabus details and available storage, then try again. "
+                f"Your original PDF has not been changed.\n\n{error}",
             )
             return
 
         self.syllabus_file_label.setText(
             f"Reviewed: {Path(selected_path).name}"
         )
+        self.refresh_syllabus_versions()
+        self.refresh_course_list()
         self.statusBar().showMessage(
-            f"Syllabus details saved for review: {saved_path.name}", 6000
+            f"Saved syllabus version {version['version_number']}.", 6000
         )
+
+    def refresh_syllabus_versions(self) -> None:
+        versions = self.database.list_syllabus_versions()
+        self.syllabus_versions_list.clear()
+        for version in versions:
+            course = version["course_name"] or "Course not linked"
+            code = f" ({version['course_code']})" if version["course_code"] else ""
+            filename = Path(version["source_pdf_path"]).name
+            item = QListWidgetItem(
+                f"{course}{code} — {filename}\n"
+                f"Version {version['version_number']} · "
+                f"{version['review_status'].title()}"
+            )
+            item.setData(Qt.ItemDataRole.UserRole, version["id"])
+            self.syllabus_versions_list.addItem(item)
 
     def _predict_page(self) -> QWidget:
         page, layout = self._new_page(
@@ -484,15 +534,118 @@ class MainWindow(QMainWindow):
         return page
 
     def _history_page(self) -> QWidget:
-        page, layout = self._new_page("History", "Review past questions and decisions.")
-        layout.addWidget(
-            self._empty_state(
-                "No history yet",
-                "Questions and reviewed classifications will appear here.",
-            )
+        page, layout = self._new_page(
+            "History", "Review questions and their suggested or approved labels."
         )
+        toolbar = QHBoxLayout()
+        self.history_search = QLineEdit()
+        self.history_search.setPlaceholderText("Search questions or courses")
+        self.history_search.textChanged.connect(self.refresh_question_history)
+        toolbar.addWidget(self.history_search, 1)
+
+        backup_button = QPushButton("Back up data")
+        backup_button.setObjectName("secondaryButton")
+        backup_button.clicked.connect(self._backup_data)
+        export_button = QPushButton("Export data")
+        export_button.setObjectName("secondaryButton")
+        export_button.clicked.connect(self._export_data)
+        toolbar.addWidget(backup_button)
+        toolbar.addWidget(export_button)
+        layout.addLayout(toolbar)
+
+        self.history_table = QTableWidget()
+        self.history_table.setColumnCount(6)
+        self.history_table.setHorizontalHeaderLabels(
+            ["Course", "Question", "Suggested CO / BL", "Approved CO / BL", "Review", "Date"]
+        )
+        self.history_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers
+        )
+        self.history_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.history_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch
+        )
+        layout.addWidget(self.history_table, 1)
+        self.history_empty_label = QLabel("No questions have been saved yet.")
+        self.history_empty_label.setObjectName("mutedText")
+        layout.addWidget(self.history_empty_label)
+        self.refresh_question_history()
         layout.addStretch(1)
         return page
+
+    def refresh_question_history(self, query: str | None = None) -> None:
+        search_text = (
+            self.history_search.text()
+            if query is None and hasattr(self, "history_search")
+            else query or ""
+        )
+        records = self.database.list_question_history(search_text)
+        self.history_table.setRowCount(len(records))
+        for row, record in enumerate(records):
+            values = (
+                f"{record['course_name']} ({record['course_code']})",
+                record["question_text"],
+                self._labels_text(record["predicted_co"], record["predicted_bl"]),
+                self._labels_text(record["approved_co"], record["approved_bl"]),
+                record["label_review_status"] or "Not reviewed",
+                record["created_at"],
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                self.history_table.setItem(row, column, item)
+        self.history_empty_label.setVisible(not records)
+
+    @staticmethod
+    def _labels_text(co_label: str | None, bl_label: str | None) -> str:
+        if co_label is None and bl_label is None:
+            return "—"
+        return f"{co_label or 'N/A'} / {bl_label or 'N/A'}"
+
+    def _backup_data(self) -> None:
+        destination, _ = QFileDialog.getSaveFileName(
+            self,
+            "Back up application data",
+            "co-bl-predictor-backup.sqlite3",
+            "SQLite backup (*.sqlite3)",
+        )
+        if not destination:
+            return
+        try:
+            saved_path = self.database.backup(destination)
+        except (DatabaseError, OSError, ValueError) as error:
+            QMessageBox.critical(self, "Backup failed", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Backup created",
+            f"Your data backup was saved to:\n{saved_path}",
+        )
+
+    def _export_data(self) -> None:
+        destination, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export application data",
+            "co-bl-predictor-export.json",
+            "JSON export (*.json)",
+        )
+        if not destination:
+            return
+        try:
+            saved_path = self.database.export_json(destination)
+        except (DatabaseError, OSError, ValueError) as error:
+            QMessageBox.critical(self, "Export failed", str(error))
+            return
+        QMessageBox.information(
+            self,
+            "Export complete",
+            f"Your data export was saved to:\n{saved_path}",
+        )
+
+    def close_storage(self) -> None:
+        self.database.close()
 
     def _new_page(self, heading: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
