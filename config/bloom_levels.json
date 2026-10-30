@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "classification_scheme": "custom_bl0_bl4",
+  "definitions_status": "draft_unverified",
+  "levels": [
+    {
+      "id": "BL0",
+      "name": "Unclassifiable",
+      "description": "The question cannot be classified under the configured BL1-BL4 scheme despite sufficient context.",
+      "keywords": []
+    },
+    {
+      "id": "BL1",
+      "name": "Remember",
+      "description": "Recall facts, terms, definitions, or previously learned information.",
+      "keywords": [
+        "define",
+        "list",
+        "state",
+        "identify",
+        "recall",
+        "name"
+      ]
+    },
+    {
+      "id": "BL2",
+      "name": "Understand",
+      "description": "Explain, describe, summarize, classify, or interpret ideas.",
+      "keywords": [
+        "explain",
+        "describe",
+        "summarize",
+        "classify",
+        "interpret"
+      ]
+    },
+    {
+      "id": "BL3",
+      "name": "Apply",
+      "description": "Use knowledge or procedures to solve a problem or complete a task.",
+      "keywords": [
+        "calculate",
+        "solve",
+        "determine",
+        "compute",
+        "demonstrate"
+      ]
+    },
+    {
+      "id": "BL4",
+      "name": "Analyze",
+      "description": "Examine relationships, distinguish parts, compare, or investigate.",
+      "keywords": [
+        "compare",
+        "differentiate",
+        "analyze",
+        "examine",
+        "investigate"
+      ]
+    }
+  ]
+}

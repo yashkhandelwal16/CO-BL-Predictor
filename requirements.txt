@@ -1,0 +1,10 @@
+# UI and test dependencies verified in the existing Python 3.12 environment.
+PySide6==6.12.0
+pytest==9.2.0
+
+# Target application dependencies. Validate versions and Python 3.11/Windows
+# compatibility during the relevant implementation phase.
+PyMuPDF==1.26.7
+scikit-learn
+llama-cpp-python
+PyInstaller

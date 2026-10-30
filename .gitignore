@@ -19,14 +19,28 @@ __pycache__/
 # PyInstaller / Build outputs
 build/
 dist/
-*.spec
 
-# Logs and databases
+# Local data and model assets
+data/syllabi/
+data/parsed_json/
+data/exports/
+models/
+*.gguf
+*.ggml
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Logs, test artifacts, and generated data
 *.log
 history.json
 history.csv
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Kivy temporary files & cache
+# Kivy temporary files & cache (legacy prototype)
 .kivy/
 
 # Editor / IDE configuration
