@@ -1,10 +1,11 @@
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Any
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+from src.database.db_manager import DatabaseManager
 
 
 DEFAULT_MIN_SIMILARITY = 0.15
@@ -29,7 +30,7 @@ class ApprovedExampleRetriever:
 
     def __init__(
         self,
-        database: Any,
+        database: DatabaseManager,
         *,
         min_similarity: float = DEFAULT_MIN_SIMILARITY,
         max_results: int = DEFAULT_MAX_RESULTS,

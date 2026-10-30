@@ -178,9 +178,11 @@ review of course details, units, topics, and outcomes. Reviewed JSON and
 versioned syllabus metadata are saved in the per-user application data folder;
 the original PDF remains in its original location. Unclear or missing fields
 are flagged. Scanned PDFs without selectable text are reported; OCR is not
-included. The Predict screen can produce local suggested labels for faculty
-review, and the History screen displays saved question records and offers data
-backup and JSON export. A faculty correction workflow is not yet available.
+included. The Predict screen produces local suggested labels for faculty
+review. In History, select a question to approve or correct its labels; the
+original suggestion remains saved separately. Reviewed labels can support
+retrieval of similar examples from that course. History also offers data
+backup and JSON export.
 
 On Windows, the application data folder is
 `%LOCALAPPDATA%\\CO-BL-Predictor`. It contains the database and reviewed
@@ -364,8 +366,8 @@ installing the model and runtime, then rerun the model test.
   and tested.
 - Phase 8 — Approved-example retrieval and review: faculty can approve or
   correct saved suggestions in History; original predictions remain unchanged.
-  Same-course reviewed examples are ranked with TF-IDF and cosine similarity,
-  and only examples above the minimum similarity threshold enter prediction
+  Same-course reviewed examples are ranked with TF-IDF and cosine similarity.
+  Up to three examples with similarity of at least 0.15 enter prediction
   context. The retrieval index is rebuilt from current reviews per prediction,
   so new corrections are immediately available. This supplies context; it does
   not train or fine-tune the local model.

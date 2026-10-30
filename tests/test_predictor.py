@@ -223,7 +223,7 @@ def test_prediction_prompts_include_only_relevant_faculty_reviewed_examples(
     predictor = QuestionPredictor(database, client, load_bloom_config())
 
     result = predictor.predict(
-        "CS305", "Describe how a router forwards packets with its routing table."
+        "CS305", "Explain how routers forward packets using routing table."
     )
 
     assert result.co_label == "CO3"
