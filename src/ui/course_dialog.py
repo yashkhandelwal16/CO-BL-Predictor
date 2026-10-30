@@ -29,29 +29,29 @@ class CourseDialog(QDialog):
         self.setStyleSheet(
             """
             QFrame#syllabusPicker {
-                background-color: #f7fbfc;
-                border: 1px solid #5b9da5;
+                background-color: #faf9ff;
+                border: 1px solid #7C3AED;
                 border-radius: 9px;
             }
             QLabel#syllabusFileLabel {
                 background: transparent;
                 border: none;
-                color: #536b74;
+                color: #625c6e;
                 padding: 2px 4px;
             }
             QPushButton#chooseSyllabusPdfButton {
                 background: #ffffff;
-                border: 1px solid #168b91;
+                border: 1px solid #7C3AED;
                 border-radius: 7px;
-                color: #116b78;
+                color: #6d28d9;
                 font-weight: 600;
                 padding: 0 16px;
             }
             QPushButton#chooseSyllabusPdfButton:hover {
-                background: #e8f6f6;
+                background: #f5f3ff;
             }
             QPushButton#chooseSyllabusPdfButton:pressed {
-                background: #d7eeee;
+                background: #ede9fe;
             }
             """
         )

@@ -136,8 +136,26 @@ def test_course_syllabus_picker_has_clear_bordered_upload_area() -> None:
     assert dialog.choose_pdf_button.minimumHeight() >= 40
     assert dialog.syllabus_review_notice.isHidden()
     assert dialog.syllabus_picker.frameShape() == QFrame.Shape.NoFrame
-    assert "border: 1px solid #5b9da5" in dialog.styleSheet()
+    assert "border: 1px solid #7C3AED" in dialog.styleSheet()
     assert dialog.syllabus_picker.layout().spacing() >= 12
+
+
+def test_main_window_uses_white_and_violet_theme() -> None:
+    get_application()
+    window = MainWindow()
+    stylesheet = window.styleSheet()
+
+    assert "background: #ffffff" in stylesheet
+    assert "#7C3AED" in stylesheet
+    assert "background: #f5f3ff" in stylesheet
+    assert "QComboBox, QLineEdit, QTextEdit" in stylesheet
+    assert "QLabel#brand" in stylesheet
+    assert "color: #000000" in stylesheet
+    assert "QPushButton#navigationButton:checked" in stylesheet
+    assert "color: #ffffff" in stylesheet
+
+    active_navigation = window.navigation_buttons["Dashboard"]
+    assert active_navigation.isChecked()
 
 
 def test_course_page_lists_and_filters_courses() -> None:
