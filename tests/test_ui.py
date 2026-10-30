@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
+    QFrame,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -123,6 +124,20 @@ def test_end_user_interface_hides_implementation_details() -> None:
         assert internal_term not in visible_copy
 
     assert not window.navigation_buttons.get("Settings")
+
+
+def test_course_syllabus_picker_has_clear_bordered_upload_area() -> None:
+    get_application()
+    dialog = CourseDialog()
+
+    assert dialog.syllabus_picker.objectName() == "syllabusPicker"
+    assert dialog.syllabus_label.text() == "No PDF selected"
+    assert dialog.choose_pdf_button.text() == "Choose syllabus PDF"
+    assert dialog.choose_pdf_button.minimumHeight() >= 40
+    assert dialog.syllabus_review_notice.isHidden()
+    assert dialog.syllabus_picker.frameShape() == QFrame.Shape.NoFrame
+    assert "border: 1px solid #5b9da5" in dialog.styleSheet()
+    assert dialog.syllabus_picker.layout().spacing() >= 12
 
 
 def test_course_page_lists_and_filters_courses() -> None:

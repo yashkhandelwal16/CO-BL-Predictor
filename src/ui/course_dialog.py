@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -25,6 +26,35 @@ class CourseDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Edit course" if course else "Create course")
         self.setMinimumWidth(560)
+        self.setStyleSheet(
+            """
+            QFrame#syllabusPicker {
+                background-color: #f7fbfc;
+                border: 1px solid #5b9da5;
+                border-radius: 9px;
+            }
+            QLabel#syllabusFileLabel {
+                background: transparent;
+                border: none;
+                color: #536b74;
+                padding: 2px 4px;
+            }
+            QPushButton#chooseSyllabusPdfButton {
+                background: #ffffff;
+                border: 1px solid #168b91;
+                border-radius: 7px;
+                color: #116b78;
+                font-weight: 600;
+                padding: 0 16px;
+            }
+            QPushButton#chooseSyllabusPdfButton:hover {
+                background: #e8f6f6;
+            }
+            QPushButton#chooseSyllabusPdfButton:pressed {
+                background: #d7eeee;
+            }
+            """
+        )
         self._syllabus_pdf = course.syllabus_pdf if course else None
         self._outcome_inputs: dict[str, QTextEdit] = {}
 
@@ -54,26 +84,46 @@ class CourseDialog(QDialog):
 
         layout.addLayout(form)
 
-        syllabus_row = QHBoxLayout()
+        syllabus_heading = QLabel("Syllabus PDF (optional)")
+        syllabus_heading.setObjectName("fieldLabel")
+        layout.addWidget(syllabus_heading)
+
+        self.syllabus_picker = QFrame()
+        self.syllabus_picker.setObjectName("syllabusPicker")
+        self.syllabus_picker.setFrameShape(QFrame.Shape.NoFrame)
+        syllabus_picker_layout = QHBoxLayout(self.syllabus_picker)
+        syllabus_picker_layout.setContentsMargins(14, 12, 14, 12)
+        syllabus_picker_layout.setSpacing(16)
         self.syllabus_label = QLabel(
             Path(self._syllabus_pdf).name if self._syllabus_pdf else "No PDF selected"
         )
-        self.syllabus_label.setObjectName("mutedText")
+        self.syllabus_label.setObjectName("syllabusFileLabel")
         self.syllabus_label.setWordWrap(True)
+        self.syllabus_label.setMinimumHeight(40)
+        self.syllabus_label.setAlignment(
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+        )
         self.syllabus_review_notice = QLabel("")
         self.syllabus_review_notice.setObjectName("noticeText")
         self.syllabus_review_notice.setWordWrap(True)
+        self.syllabus_review_notice.hide()
         self.choose_pdf_button = QPushButton("Choose syllabus PDF")
+        self.choose_pdf_button.setObjectName("chooseSyllabusPdfButton")
+        self.choose_pdf_button.setMinimumHeight(42)
+        self.choose_pdf_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.choose_pdf_button.setToolTip(
+            "Select an optional PDF syllabus for this course"
+        )
         self.choose_pdf_button.clicked.connect(self._choose_pdf)
-        syllabus_row.addWidget(self.syllabus_label, 1)
-        syllabus_row.addWidget(self.choose_pdf_button)
-        layout.addWidget(QLabel("Syllabus PDF (optional)"))
-        layout.addLayout(syllabus_row)
+        syllabus_picker_layout.addWidget(self.syllabus_label, 1)
+        syllabus_picker_layout.addWidget(self.choose_pdf_button)
+        layout.addWidget(self.syllabus_picker)
         layout.addWidget(self.syllabus_review_notice)
 
         help_text = QLabel("Review and correct every course outcome before saving.")
         help_text.setObjectName("mutedText")
         help_text.setWordWrap(True)
+        layout.addSpacing(4)
         layout.addWidget(help_text)
 
         buttons = QDialogButtonBox(
@@ -154,3 +204,4 @@ class CourseDialog(QDialog):
             self.syllabus_review_notice.setText(
                 "No course outcomes were found. Enter them manually."
             )
+        self.syllabus_review_notice.show()
