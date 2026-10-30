@@ -5,6 +5,8 @@ from pathlib import Path
 from threading import Event, Lock
 from typing import Any, Literal, Protocol, TypedDict
 
+from src.utils.resource_paths import application_resource_path
+
 
 ChatRole = Literal["system", "user", "assistant"]
 
@@ -57,10 +59,8 @@ def default_model_path() -> Path:
     configured_path = os.environ.get("CO_BL_MODEL_PATH")
     if configured_path:
         return Path(configured_path).expanduser()
-    return (
-        Path(__file__).resolve().parents[2]
-        / "models"
-        / "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+    return application_resource_path(
+        "models", "qwen2.5-0.5b-instruct-q4_k_m.gguf"
     )
 
 
@@ -126,22 +126,7 @@ class LLMClient:
         with self._load_lock:
             if self._model is not None:
                 return
-            if not self.model_path.is_file():
-                raise ModelNotFoundError(
-                    f"Local model file was not found: {self.model_path}"
-                )
-            try:
-                with self.model_path.open("rb") as model_file:
-                    signature = model_file.read(4)
-            except OSError as error:
-                raise ModelLoadError(
-                    f"Local model file could not be read: {error}"
-                ) from error
-            if signature != b"GGUF":
-                raise ModelLoadError(
-                    "The selected file is not a valid GGUF model. "
-                    "Download the .gguf model file and try again."
-                )
+            self.validate_model_asset()
 
             model_factory = self._model_factory()
             try:
@@ -156,6 +141,25 @@ class LLMClient:
                     "The local model could not be loaded. The file may be "
                     "incomplete, corrupt, or incompatible with this runtime."
                 ) from error
+
+    def validate_model_asset(self) -> None:
+        """Check model presence, readability, and GGUF signature without loading."""
+        if not self.model_path.is_file():
+            raise ModelNotFoundError(
+                f"Local model file was not found: {self.model_path}"
+            )
+        try:
+            with self.model_path.open("rb") as model_file:
+                signature = model_file.read(4)
+        except OSError as error:
+            raise ModelLoadError(
+                f"Local model file could not be read: {error}"
+            ) from error
+        if signature != b"GGUF":
+            raise ModelLoadError(
+                "The selected file is not a valid GGUF model. "
+                "Download the .gguf model file and try again."
+            )
 
     @staticmethod
     def _model_factory() -> Callable[..., _ChatModel]:

@@ -1,14 +1,20 @@
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
+from src.utils.resource_paths import (
+    application_data_root,
+    application_resource_path,
+    is_packaged_application,
+)
+
 
 EXPECTED_LEVEL_IDS = ("BL0", "BL1", "BL2", "BL3", "BL4")
-_DEFAULT_CONFIG_PATH = (
-    Path(__file__).resolve().parents[2] / "config" / "bloom_levels.default.json"
-)
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "bloom_levels.json"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config" / "bloom_levels.default.json"
+_CONFIG_PATH = _PROJECT_ROOT / "config" / "bloom_levels.json"
 
 
 class BloomConfigurationError(ValueError):
@@ -16,7 +22,9 @@ class BloomConfigurationError(ValueError):
 
 
 def load_bloom_config(path: str | Path | None = None) -> dict[str, Any]:
-    config_path = Path(path) if path is not None else _CONFIG_PATH
+    config_path = Path(path) if path is not None else _active_config_path()
+    if path is None and is_packaged_application():
+        _initialize_user_config(config_path)
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
     except FileNotFoundError as error:
@@ -90,7 +98,7 @@ def save_bloom_config(
     config: dict[str, Any], path: str | Path | None = None
 ) -> Path:
     validate_bloom_config(config)
-    config_path = Path(path) if path is not None else _CONFIG_PATH
+    config_path = Path(path) if path is not None else _active_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = config_path.with_suffix(config_path.suffix + ".tmp")
     try:
@@ -108,9 +116,30 @@ def save_bloom_config(
 def restore_default_bloom_config(
     path: str | Path | None = None,
 ) -> dict[str, Any]:
-    defaults = load_bloom_config(_DEFAULT_CONFIG_PATH)
+    defaults = load_bloom_config(
+        application_resource_path("config", "bloom_levels.default.json")
+    )
     save_bloom_config(defaults, path)
     return defaults
+
+
+def _active_config_path() -> Path:
+    if is_packaged_application():
+        return application_data_root() / "config" / "bloom_levels.json"
+    return _CONFIG_PATH
+
+
+def _initialize_user_config(config_path: Path) -> None:
+    if config_path.exists():
+        return
+    bundled_path = application_resource_path("config", "bloom_levels.json")
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(bundled_path, config_path)
+    except OSError as error:
+        raise BloomConfigurationError(
+            f"Classification configuration could not be initialized: {error}"
+        ) from error
 
 
 def collect_bloom_keyword_evidence(

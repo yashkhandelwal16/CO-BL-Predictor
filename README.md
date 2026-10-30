@@ -388,6 +388,44 @@ including model load and reached a 545,140,736-byte peak process working set
 repeat it on the target computer for representative results. Python socket
 blocking is not a substitute for an OS-level disconnected-network test.
 
+## Phase 10 — Build and verify the Windows application
+
+The release is a one-folder distribution, not a single-file executable. The
+folder contains the application executable, Python/Qt/native runtime files,
+classification configuration, and the verified Qwen GGUF model. Expect a
+large download: this development build is about 0.78 GiB. Keep and distribute
+the whole `dist\CO-BL-Predictor` folder together.
+
+On Windows, with the project environment and verified model installed, build
+and run the packaged asset/inference smoke test:
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+The script checks the model SHA-256, builds with PyInstaller, then starts the
+packaged executable in a private self-test mode. The test loads the bundled model,
+classification rules, and SQLite database, with writable files redirected to
+a temporary user-data directory. It removes only that temporary test directory
+after a successful or failed run. The ordinary application stores its
+database and editable classification configuration in
+`%LOCALAPPDATA%\CO-BL-Predictor`, outside the installation and extraction
+directories. The packaged application checks that its bundled model exists,
+is readable, and has the GGUF signature before showing the main window.
+
+For distribution, archive or install the complete output folder; do not copy
+only the `.exe`. The PyInstaller folder already contains Python and the native
+llama.cpp/Qt/PDF libraries, so the target does not need a separate Python or
+Ollama installation. The tested model is approximately 491 MB and subject to
+its published Apache-2.0 license. PyMuPDF distribution requires review of its
+AGPL-3.0 or commercial licensing terms. Review `THIRD_PARTY_NOTICES.md` and
+the licenses for all bundled dependencies before redistribution.
+
+The build and smoke test run on the current Windows development computer.
+They do not replace testing on a separate clean Windows machine, an
+OS-level-disconnected network, or a target computer without Python installed.
+Do those release checks before publishing a distributable.
+
 ## Phase status
 
 - Phase 0 — Workspace audit, requirements, project rules, and architecture:
@@ -426,4 +464,9 @@ blocking is not a substitute for an OS-level disconnected-network test.
   benchmark passed. A real faculty-labelled held-out set and OS-level
   disconnected-network test are still required before academic accuracy or
   fully offline operation can be certified.
-- Phase 10 — Not started.
+- Phase 10 — Windows one-folder PyInstaller build (tested under Python 3.12.4),
+  bundled verified model,
+  configuration, application icon/version metadata, per-user writable
+  configuration/database paths, startup model validation, and packaged
+  inference smoke test are implemented. Clean-machine and OS-level offline
+  acceptance tests remain outstanding.
