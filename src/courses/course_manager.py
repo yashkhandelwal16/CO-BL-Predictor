@@ -8,7 +8,7 @@ from src.database.db_manager import (
 )
 
 
-COURSE_OUTCOME_IDS = ("CO1", "CO2", "CO3", "CO4")
+COURSE_OUTCOME_IDS = ("CO1", "CO2", "CO3", "CO4", "CO5")
 
 
 class CourseValidationError(ValueError):
@@ -88,6 +88,53 @@ class CourseManager:
             raise CourseValidationError(f"Course could not be saved: {error}") from error
         return self._as_course(record)
 
+    def save_reviewed_syllabus(
+        self,
+        syllabus_data: dict[str, object],
+        parsed_json_path: str | Path,
+        original_code: str | None = None,
+    ) -> Course:
+        name = str(syllabus_data.get("course_name") or "")
+        code = str(syllabus_data.get("course_code") or "")
+        source_file = str(syllabus_data.get("source_file") or "")
+        raw_outcomes = syllabus_data.get("course_outcomes")
+        if not isinstance(raw_outcomes, list):
+            raise CourseValidationError("Reviewed course outcomes must be a list.")
+
+        outcomes: dict[str, str] = {}
+        for outcome in raw_outcomes:
+            if not isinstance(outcome, dict):
+                raise CourseValidationError("Each course outcome must be an object.")
+            outcome_id = str(outcome.get("id", "")).strip().upper()
+            description = str(outcome.get("description", "")).strip()
+            if outcome_id in COURSE_OUTCOME_IDS and description:
+                outcomes[outcome_id] = description
+
+        course = self._validated_course(name, code, outcomes, source_file)
+        try:
+            existing = self.database.get_course(course.code)
+            code_to_update = (
+                self._normalize_code(original_code)
+                if original_code
+                else course.code if existing else None
+            )
+            record = self.database.save_course(
+                course.name,
+                course.code,
+                course.course_outcomes,
+                course.syllabus_pdf,
+                original_code=code_to_update,
+                reviewed_syllabus=syllabus_data,
+                parsed_json_path=parsed_json_path,
+            )
+        except DuplicateCourseCodeError as error:
+            raise CourseValidationError(str(error)) from error
+        except DatabaseError as error:
+            raise CourseValidationError(
+                f"Course and reviewed syllabus could not be saved: {error}"
+            ) from error
+        return self._as_course(record)
+
     def delete_course(self, code: str) -> bool:
         try:
             return self.database.delete_course(self._normalize_code(code))
@@ -127,20 +174,21 @@ class CourseManager:
             raise CourseValidationError("Course code is required.")
 
         if not isinstance(course_outcomes, dict):
-            raise CourseValidationError("Enter descriptions for CO1 through CO4.")
-
-        outcomes = {
-            outcome_id: str(course_outcomes.get(outcome_id, "")).strip()
-            for outcome_id in COURSE_OUTCOME_IDS
-        }
-        missing_outcomes = [
-            outcome_id for outcome_id, description in outcomes.items() if not description
-        ]
-        if missing_outcomes:
-            missing = ", ".join(missing_outcomes)
             raise CourseValidationError(
-                f"Course outcome descriptions are required for: {missing}."
+                "Course outcomes must be provided as labeled descriptions."
             )
+        invalid_outcomes = set(course_outcomes).difference(COURSE_OUTCOME_IDS)
+        if invalid_outcomes:
+            raise CourseValidationError(
+                "Unsupported course outcome IDs: "
+                + ", ".join(sorted(invalid_outcomes))
+                + "."
+            )
+        outcomes = {
+            outcome_id: str(course_outcomes.get(outcome_id) or "").strip()
+            for outcome_id in COURSE_OUTCOME_IDS
+            if str(course_outcomes.get(outcome_id) or "").strip()
+        }
 
         normalized_pdf = None
         if syllabus_pdf and syllabus_pdf.strip():

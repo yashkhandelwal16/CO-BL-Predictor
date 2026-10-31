@@ -21,6 +21,7 @@ from src.courses.course_manager import COURSE_OUTCOME_IDS
 from src.prediction.prediction_worker import PredictionWorker
 from src.syllabus.pdf_extractor import validate_syllabus_data
 from src.ui.course_dialog import CourseDialog
+from src.ui.label_review_dialog import LabelReviewDialog
 from src.ui.main_window import MainWindow
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
 import src.ui.main_window as main_window_module
@@ -378,7 +379,7 @@ def test_course_delete_requires_confirmation(monkeypatch) -> None:
     assert window.course_manager.get_course("CS402") is None
 
 
-def test_course_dialog_keeps_four_outcomes_separate() -> None:
+def test_course_dialog_keeps_five_optional_outcomes_separate() -> None:
     get_application()
     dialog = CourseDialog()
     dialog.name_input.setText("Computer Networks")
@@ -394,6 +395,22 @@ def test_course_dialog_keeps_four_outcomes_separate() -> None:
         for outcome_id in COURSE_OUTCOME_IDS
     }
     assert syllabus_pdf is None
+
+
+def test_label_review_only_offers_saved_course_outcomes() -> None:
+    get_application()
+
+    dialog = LabelReviewDialog(
+        "Evaluate network security.",
+        "CO5",
+        "BL4",
+        available_co_labels=("CO5",),
+    )
+
+    assert [
+        dialog.co_selector.itemText(index)
+        for index in range(dialog.co_selector.count())
+    ] == ["CO5", "N/A"]
 
 
 def test_create_course_action_connects_form_to_course_manager(monkeypatch) -> None:
@@ -495,6 +512,11 @@ def test_course_pdf_selection_populates_extracted_outcome_fields(
         "getOpenFileName",
         lambda *args: (str(pdf_path), "PDF files (*.pdf)"),
     )
+    monkeypatch.setattr(
+        SyllabusReviewDialog,
+        "exec",
+        lambda self: QDialog.DialogCode.Accepted,
+    )
     dialog = CourseDialog()
 
     dialog._choose_pdf()
@@ -552,9 +574,17 @@ def test_syllabus_import_reviews_and_saves_structured_data(
     assert saved_records[0]["course_name"] == "Networks"
     assert saved_records[0]["units"][0]["topics"] == ["Routing"]
     assert window.syllabus_file_label.text() == "Reviewed: course.pdf"
+    saved_course = window.course_manager.get_course("CS301")
+    assert saved_course is not None
+    assert saved_course.course_outcomes == {
+        "CO1": "Explain network routing."
+    }
+    assert window.database.list_syllabus_versions("CS301")[0][
+        "review_status"
+    ] == "reviewed"
 
 
-def test_course_pdf_selection_warns_about_outcomes_outside_four_course_fields(
+def test_course_pdf_selection_reviews_and_populates_co5(
     tmp_path, monkeypatch
 ) -> None:
     get_application()
@@ -573,9 +603,15 @@ def test_course_pdf_selection_warns_about_outcomes_outside_four_course_fields(
         "getOpenFileName",
         lambda *args: (str(pdf_path), "PDF files (*.pdf)"),
     )
+    monkeypatch.setattr(
+        SyllabusReviewDialog,
+        "exec",
+        lambda self: QDialog.DialogCode.Accepted,
+    )
     dialog = CourseDialog()
 
     dialog._choose_pdf()
 
-    assert "CO5" in dialog.syllabus_review_notice.text()
     assert dialog._outcome_inputs["CO1"].toPlainText() == "Explain routes."
+    assert dialog._outcome_inputs["CO5"].toPlainText() == "Evaluate networks."
+    assert dialog.reviewed_syllabus_data()["course_outcomes"][-1]["id"] == "CO5"

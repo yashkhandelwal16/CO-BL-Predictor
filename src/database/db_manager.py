@@ -10,8 +10,8 @@ from threading import RLock
 from typing import Any, Iterator
 
 
-DATABASE_SCHEMA_VERSION = 1
-VALID_CO_LABELS = {"CO1", "CO2", "CO3", "CO4", "N/A"}
+DATABASE_SCHEMA_VERSION = 2
+VALID_CO_LABELS = {"CO1", "CO2", "CO3", "CO4", "CO5", "N/A"}
 VALID_BL_LABELS = {"BL0", "BL1", "BL2", "BL3", "BL4", "N/A"}
 
 
@@ -110,12 +110,93 @@ class DatabaseManager:
                 )
             if current_version == DATABASE_SCHEMA_VERSION:
                 return
+            if current_version not in {0, 1}:
+                raise DatabaseError(
+                    f"No migration is available from database version "
+                    f"{current_version}."
+                )
 
         with self._transaction() as connection:
-            for statement in _SCHEMA.split(";"):
-                if statement.strip():
-                    connection.execute(statement)
+            if current_version == 0:
+                for statement in _SCHEMA.split(";"):
+                    if statement.strip():
+                        connection.execute(statement)
+            else:
+                self._migrate_v1_to_v2(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate_v1_to_v2(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "CREATE TABLE course_outcomes_v2 ("
+            "course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE, "
+            "outcome_id TEXT NOT NULL CHECK (outcome_id IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5')), "
+            "description TEXT NOT NULL CHECK (length(trim(description)) > 0), "
+            "source_pages_json TEXT NOT NULL DEFAULT '[]', "
+            "source_syllabus_version_id TEXT REFERENCES syllabus_versions(id) "
+            "ON DELETE SET NULL, updated_at TEXT NOT NULL, "
+            "PRIMARY KEY (course_id, outcome_id))"
+        )
+        connection.execute(
+            "INSERT INTO course_outcomes_v2 SELECT * FROM course_outcomes"
+        )
+        connection.execute(
+            "CREATE TABLE predictions_v2 ("
+            "id TEXT PRIMARY KEY, "
+            "question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, "
+            "syllabus_version_id TEXT REFERENCES syllabus_versions(id) "
+            "ON DELETE SET NULL, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK (bl_label IN "
+            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')), "
+            "status TEXT NOT NULL CHECK (status IN "
+            "('predicted', 'insufficient_context', 'failed')), "
+            "provider_name TEXT, model_name TEXT, model_version TEXT, "
+            "created_at TEXT NOT NULL, UNIQUE (id, question_id))"
+        )
+        connection.execute(
+            "INSERT INTO predictions_v2 SELECT * FROM predictions"
+        )
+        connection.execute(
+            "CREATE TABLE approved_labels_v2 ("
+            "id TEXT PRIMARY KEY, "
+            "question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, "
+            "prediction_id TEXT, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK (bl_label IN "
+            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')), "
+            "review_status TEXT NOT NULL CHECK "
+            "(review_status IN ('approved', 'corrected')), "
+            "reviewed_by TEXT, review_note TEXT, created_at TEXT NOT NULL, "
+            "FOREIGN KEY (prediction_id, question_id) "
+            "REFERENCES predictions_v2(id, question_id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "INSERT INTO approved_labels_v2 SELECT * FROM approved_labels"
+        )
+
+        for index_name in (
+            "idx_approved_question_created",
+            "idx_predictions_question_created",
+        ):
+            connection.execute(f"DROP INDEX IF EXISTS {index_name}")
+        connection.execute("DROP TABLE approved_labels")
+        connection.execute("DROP TABLE predictions")
+        connection.execute("DROP TABLE course_outcomes")
+        connection.execute("ALTER TABLE course_outcomes_v2 RENAME TO course_outcomes")
+        connection.execute("ALTER TABLE predictions_v2 RENAME TO predictions")
+        connection.execute("ALTER TABLE approved_labels_v2 RENAME TO approved_labels")
+        connection.execute(
+            "CREATE INDEX idx_predictions_question_created "
+            "ON predictions(question_id, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX idx_approved_question_created "
+            "ON approved_labels(question_id, created_at DESC)"
+        )
 
     def close(self) -> None:
         with self._lock:
@@ -128,6 +209,9 @@ class DatabaseManager:
         outcomes: dict[str, str],
         syllabus_pdf: str | None = None,
         original_code: str | None = None,
+        *,
+        reviewed_syllabus: dict[str, Any] | None = None,
+        parsed_json_path: str | Path | None = None,
     ) -> dict[str, Any]:
         normalized_name = name.strip()
         normalized_code = code.strip().upper()
@@ -136,11 +220,39 @@ class DatabaseManager:
         )
         if not normalized_name or not normalized_code:
             raise ValueError("Course name and code are required.")
-        if set(outcomes) != {"CO1", "CO2", "CO3", "CO4"} or any(
-            not str(outcomes[label]).strip()
-            for label in ("CO1", "CO2", "CO3", "CO4")
-        ):
-            raise ValueError("Four non-empty course outcome descriptions are required.")
+        if not isinstance(outcomes, dict):
+            raise ValueError("Course outcomes must be provided as labeled text.")
+        valid_outcomes = {"CO1", "CO2", "CO3", "CO4", "CO5"}
+        invalid_outcomes = set(outcomes).difference(valid_outcomes)
+        if invalid_outcomes:
+            raise ValueError(
+                "Unsupported course outcome IDs: "
+                + ", ".join(sorted(invalid_outcomes))
+                + "."
+            )
+        normalized_outcomes = {
+            label: str(description).strip()
+            for label, description in outcomes.items()
+            if str(description).strip()
+        }
+        if len(normalized_outcomes) != len(outcomes):
+            raise ValueError("Course outcome descriptions cannot be empty.")
+
+        if reviewed_syllabus is not None:
+            if reviewed_syllabus.get("review_status") != "reviewed":
+                raise ValueError("Only a reviewed syllabus can be saved as a course.")
+            if (reviewed_syllabus.get("course_name") or "").strip().casefold() != (
+                normalized_name.casefold()
+            ):
+                raise ValueError("The reviewed syllabus course name does not match.")
+            if (reviewed_syllabus.get("course_code") or "").strip().upper() != (
+                normalized_code
+            ):
+                raise ValueError("The reviewed syllabus course code does not match.")
+            source_file = reviewed_syllabus.get("source_file")
+            if not isinstance(source_file, str) or not source_file.strip():
+                raise ValueError("The reviewed syllabus source PDF is required.")
+            syllabus_pdf = source_file
 
         syllabus_path = str(Path(syllabus_pdf).expanduser()) if syllabus_pdf else None
         now = _timestamp()
@@ -206,7 +318,7 @@ class DatabaseManager:
                     ),
                 )
 
-            for outcome_id, description in outcomes.items():
+            for outcome_id, description in normalized_outcomes.items():
                 connection.execute(
                     "INSERT INTO course_outcomes "
                     "(course_id, outcome_id, description, source_pages_json, "
@@ -224,6 +336,44 @@ class DatabaseManager:
                     (course_id, outcome_id, str(description).strip(), now),
                 )
 
+            if normalized_outcomes:
+                placeholders = ", ".join("?" for _ in normalized_outcomes)
+                connection.execute(
+                    "DELETE FROM course_outcomes WHERE course_id = ? "
+                    f"AND outcome_id NOT IN ({placeholders})",
+                    (course_id, *normalized_outcomes),
+                )
+            else:
+                connection.execute(
+                    "DELETE FROM course_outcomes WHERE course_id = ?",
+                    (course_id,),
+                )
+
+            if reviewed_syllabus is not None:
+                reviewed_version = self._insert_syllabus_version(
+                    connection,
+                    course_id=course_id,
+                    course_name=normalized_name,
+                    course_code=normalized_code,
+                    source_pdf_path=syllabus_path,
+                    source_sha256=_file_sha256(syllabus_path),
+                    parsed_json_path=(
+                        str(Path(parsed_json_path).expanduser())
+                        if parsed_json_path
+                        else None
+                    ),
+                    content=reviewed_syllabus,
+                    review_status="reviewed",
+                    now=now,
+                )
+                self._save_reviewed_outcomes(
+                    connection,
+                    course_id,
+                    reviewed_version["id"],
+                    reviewed_syllabus.get("course_outcomes", []),
+                    now,
+                )
+
             current_syllabus = (
                 connection.execute(
                     "SELECT source_pdf_path, source_sha256 FROM syllabus_versions "
@@ -234,7 +384,7 @@ class DatabaseManager:
                 else None
             )
             syllabus_digest = _file_sha256(syllabus_path) if syllabus_path else None
-            if syllabus_path and (
+            if reviewed_syllabus is None and syllabus_path and (
                 current_syllabus is None
                 or syllabus_path != current_syllabus["source_pdf_path"]
                 or syllabus_digest != current_syllabus["source_sha256"]
@@ -252,7 +402,7 @@ class DatabaseManager:
                         "course_code": normalized_code,
                         "course_outcomes": [
                             {"id": outcome_id, "description": description.strip()}
-                            for outcome_id, description in outcomes.items()
+                            for outcome_id, description in normalized_outcomes.items()
                         ],
                     },
                     review_status="pending",
@@ -266,7 +416,7 @@ class DatabaseManager:
                 "syllabus_pdf": syllabus_path,
                 "created_at": created_at,
                 "updated_at": now,
-                "course_outcomes": dict(outcomes),
+                "course_outcomes": dict(normalized_outcomes),
             }
 
     def list_courses(self, query: str = "") -> list[dict[str, Any]]:
@@ -465,14 +615,11 @@ class DatabaseManager:
             str(outcome.get("id", "")).strip().upper(): outcome
             for outcome in outcomes
         }
-        expected = {"CO1", "CO2", "CO3", "CO4"}
-        if set(by_id) != expected or any(
-            not str(outcome.get("description", "")).strip()
-            for outcome in by_id.values()
-        ):
-            return
-
         for outcome_id, outcome in by_id.items():
+            if outcome_id not in {"CO1", "CO2", "CO3", "CO4", "CO5"}:
+                continue
+            if not str(outcome.get("description", "")).strip():
+                continue
             connection.execute(
                 "INSERT INTO course_outcomes "
                 "(course_id, outcome_id, description, source_pages_json, "
@@ -865,7 +1012,9 @@ CREATE INDEX idx_syllabus_code_imported
 
 CREATE TABLE course_outcomes (
     course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
-    outcome_id TEXT NOT NULL CHECK (outcome_id IN ('CO1', 'CO2', 'CO3', 'CO4')),
+    outcome_id TEXT NOT NULL CHECK (
+        outcome_id IN ('CO1', 'CO2', 'CO3', 'CO4', 'CO5')
+    ),
     description TEXT NOT NULL CHECK (length(trim(description)) > 0),
     source_pages_json TEXT NOT NULL DEFAULT '[]',
     source_syllabus_version_id TEXT REFERENCES syllabus_versions(id) ON DELETE SET NULL,
@@ -889,7 +1038,9 @@ CREATE TABLE predictions (
     id TEXT PRIMARY KEY,
     question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     syllabus_version_id TEXT REFERENCES syllabus_versions(id) ON DELETE SET NULL,
-    co_label TEXT NOT NULL CHECK (co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'N/A')),
+    co_label TEXT NOT NULL CHECK (
+        co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')
+    ),
     bl_label TEXT NOT NULL CHECK (bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')),
     status TEXT NOT NULL CHECK (
         status IN ('predicted', 'insufficient_context', 'failed')
@@ -907,7 +1058,9 @@ CREATE TABLE approved_labels (
     id TEXT PRIMARY KEY,
     question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
     prediction_id TEXT,
-    co_label TEXT NOT NULL CHECK (co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'N/A')),
+    co_label TEXT NOT NULL CHECK (
+        co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')
+    ),
     bl_label TEXT NOT NULL CHECK (bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')),
     review_status TEXT NOT NULL CHECK (review_status IN ('approved', 'corrected')),
     reviewed_by TEXT,

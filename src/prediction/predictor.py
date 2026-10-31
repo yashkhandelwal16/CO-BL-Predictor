@@ -15,7 +15,7 @@ from src.prediction.bloom_rules import (
 )
 
 
-CO_LABELS = frozenset({"CO1", "CO2", "CO3", "CO4"})
+CO_LABELS = frozenset({"CO1", "CO2", "CO3", "CO4", "CO5"})
 BL_LABELS = frozenset({"BL0", "BL1", "BL2", "BL3", "BL4"})
 _TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 _STOP_WORDS = frozenset(
@@ -35,6 +35,10 @@ _SMALL_TALK_PATTERN = re.compile(
     r"(?:[,.!]?\s+how\s+are\s+you(?:\s+doing)?)?"
     r"|how\s+are\s+you(?:\s+doing)?"
     r"|what(?:'s| is)\s+your\s+name)[.!?\s]*$",
+    re.IGNORECASE,
+)
+_IDENTITY_QUESTION_PATTERN = re.compile(
+    r"^\s*(?:what|who)\s+(?:is|are|was|were)\b",
     re.IGNORECASE,
 )
 
@@ -119,11 +123,12 @@ class QuestionPredictor:
         if course is None:
             raise PredictionInputError("The selected course is no longer available.")
         outcomes = course["course_outcomes"]
-        if set(outcomes) != CO_LABELS or any(
-            not str(outcomes[label]).strip() for label in CO_LABELS
+        if not outcomes or any(
+            label not in CO_LABELS or not str(description).strip()
+            for label, description in outcomes.items()
         ):
             raise PredictionInputError(
-                "The selected course needs descriptions for CO1 through CO4."
+                "The selected course needs at least one valid CO1–CO5 description."
             )
 
         syllabus = self._reviewed_syllabus(normalized_course_code)
@@ -209,7 +214,13 @@ class QuestionPredictor:
             if isinstance(topics, list):
                 course_content_parts.extend(str(topic) for topic in topics)
         course_content = " ".join(course_content_parts)
-        if not self._terms(question).intersection(self._terms(course_content)):
+        question_terms = self._terms(question)
+        matching_terms = question_terms.intersection(self._terms(course_content))
+        unrelated_terms = question_terms.difference(matching_terms)
+        if not matching_terms or (
+            _IDENTITY_QUESTION_PATTERN.match(question)
+            and len(unrelated_terms) > len(matching_terms)
+        ):
             raise PredictionInputError(
                 "Please enter a valid academic question related to the "
                 "selected course syllabus."
@@ -225,8 +236,9 @@ class QuestionPredictor:
     ) -> str:
         outcome_text = "\n".join(
             f"{label}: {outcomes[label].strip()}"
-            for label in ("CO1", "CO2", "CO3", "CO4")
+            for label in sorted(outcomes, key=lambda value: int(value[2:]))
         )
+        allowed_labels = frozenset(outcomes) | {"N/A"}
         unit_text = self._format_units(relevant_units)
         messages: list[ChatMessage] = [
             {
@@ -243,7 +255,8 @@ class QuestionPredictor:
                     "approved examples as supporting references, not prerequisites. "
                     "If the question is unrelated, ambiguous, or lacks enough "
                     "evidence, choose N/A. Reply with exactly one label from "
-                    "CO1, CO2, CO3, CO4, N/A. Do not add punctuation or any "
+                    f"{', '.join(sorted(outcomes, key=lambda value: int(value[2:])) + ['N/A'])}. "
+                    "Do not add punctuation or any "
                     "other text."
                 ),
             },
@@ -260,7 +273,7 @@ class QuestionPredictor:
             },
         ]
         return self._request_label(
-            messages, CO_LABELS | {"N/A"}, cancellation_event
+            messages, allowed_labels, cancellation_event
         )
 
     def _predict_bl(

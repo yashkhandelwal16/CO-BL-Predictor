@@ -4,7 +4,7 @@ from typing import Any
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 
-CO_LABELS = ("CO1", "CO2", "CO3", "CO4")
+CO_LABELS = ("CO1", "CO2", "CO3", "CO4", "CO5")
 BL_LABELS = ("BL0", "BL1", "BL2", "BL3", "BL4")
 
 

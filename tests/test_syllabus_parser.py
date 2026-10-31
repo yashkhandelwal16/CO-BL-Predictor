@@ -96,6 +96,124 @@ def test_roman_unit_number_and_multiline_outcome_are_supported(tmp_path) -> None
     )
 
 
+def test_extracts_course_identity_from_a_table_and_stops_before_experiments(
+    tmp_path,
+) -> None:
+    pdf_path = tmp_path / "table-layout.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 142), "Course CodeCourse Name")
+    page.insert_text((340, 142), "Hours per Week")
+    page.insert_text((340, 164), "L")
+    page.insert_text((370, 164), "T")
+    page.insert_text((400, 164), "P")
+    page.insert_text((427, 164), "Credits")
+    page.insert_text((72, 207), "EC3CO35")
+    page.insert_text((139, 207), "Object Oriented Programming using Java")
+    page.insert_text((340, 207), "3")
+    page.insert_text((370, 207), "0")
+    page.insert_text((400, 207), "2")
+    page.insert_text((427, 207), "4")
+    page.insert_text((72, 270), "UNIT-II")
+    page.insert_text((72, 292), "12 hrs (CT: 8 hrs, SL: 4 hrs)")
+    page.insert_text((72, 314), "Inheritance and Polymorphism:")
+    page.insert_text((72, 320), "Course Outcomes (COs):")
+    page.insert_text((72, 342), "CO01Remember OOP principles and Java basics.")
+    page.insert_text((72, 364), "CO02Understand inheritance and polymorphism.")
+    page.insert_text((72, 386), "List of Experiments:")
+    page.insert_text((72, 408), "Experiment 1: This is not a course outcome.")
+    document.save(pdf_path)
+    document.close()
+
+    data = extract_syllabus(pdf_path)
+
+    assert data["course_name"] == "Object Oriented Programming using Java"
+    assert data["course_code"] == "EC3CO35"
+    source_text = data["pages"][0]["text"]
+    assert source_text.index("Course Code") < source_text.index("EC3CO35")
+    assert source_text.index("Course Name") < source_text.index(
+        "Object Oriented Programming"
+    )
+    assert data["units"][0]["unit_title"] == "Inheritance and Polymorphism"
+    assert [outcome["id"] for outcome in data["course_outcomes"]] == [
+        "CO1",
+        "CO2",
+    ]
+    assert data["course_outcomes"][0]["description"] == (
+        "Remember OOP principles and Java basics."
+    )
+    assert "Experiment 1" not in data["course_outcomes"][-1]["description"]
+    assert not data["warnings"]
+
+
+def test_extracts_common_label_variants_and_codes_on_following_lines(
+    tmp_path,
+) -> None:
+    pdf_path = tmp_path / "label-variants.pdf"
+    create_pdf(
+        pdf_path,
+        [
+            "Subject Title\n"
+            "Data Science\n"
+            "Paper Code\n"
+            "21CS52\n"
+            "Module No. 1: Data Preparation\n"
+            "Cleaning and transforming records\n"
+            "Course Outcomes:\n"
+            "CO 1 - Explain data preparation.\n"
+            "Course Outcome 2: Apply normalization techniques.",
+        ],
+    )
+
+    data = extract_syllabus(pdf_path)
+
+    assert data["course_name"] == "Data Science"
+    assert data["course_code"] == "21CS52"
+    assert data["units"][0]["unit_number"] == 1
+    assert data["units"][0]["unit_title"] == "Data Preparation"
+    assert [outcome["id"] for outcome in data["course_outcomes"]] == [
+        "CO1",
+        "CO2",
+    ]
+
+
+def test_extracts_title_and_course_number_label_variants(tmp_path) -> None:
+    pdf_path = tmp_path / "course-number.pdf"
+    create_pdf(
+        pdf_path,
+        [
+            "Course Title: Data Science\n"
+            "Course No.: CS 301\n"
+            "Unit 1: Data preparation\n"
+            "Course Learning Outcome 1: Explain data preparation.",
+        ],
+    )
+
+    data = extract_syllabus(pdf_path)
+
+    assert data["course_name"] == "Data Science"
+    assert data["course_code"] == "CS301"
+    assert data["units"][0]["unit_title"] == "Data preparation"
+    assert data["course_outcomes"][0]["id"] == "CO1"
+
+
+def test_ignores_generic_word_processor_metadata_title(tmp_path) -> None:
+    pdf_path = tmp_path / "generic-title.pdf"
+    document = pymupdf.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "A university syllabus document.")
+    document.set_metadata(
+        {"title": "Microsoft Word - V Sem Batch 2024 Odd Sem All Syllabus"}
+    )
+    document.save(pdf_path)
+    document.close()
+
+    data = extract_syllabus(pdf_path)
+
+    assert data["course_name"] is None
+    assert any("name was not clearly identified" in warning for warning in data["warnings"])
+
+
 def test_missing_metadata_is_flagged_instead_of_invented(tmp_path) -> None:
     pdf_path = tmp_path / "generic.pdf"
     create_pdf(pdf_path, ["A general introduction to this document."])

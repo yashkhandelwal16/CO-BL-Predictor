@@ -68,7 +68,7 @@ def test_course_code_is_case_insensitive_and_duplicates_are_rejected() -> None:
     [
         (" ", "CS101", outcomes(), "Course name is required"),
         ("Course", " ", outcomes(), "Course code is required"),
-        ("Course", "CS101", {"CO1": "Only one"}, "CO2"),
+        ("Course", "CS101", {"CO6": "Unsupported"}, "CO6"),
     ],
 )
 def test_required_course_fields_are_validated(
@@ -86,6 +86,21 @@ def test_only_pdf_syllabus_paths_are_accepted() -> None:
         CourseManager().add_course(
             "Course", "CS101", outcomes(), r"C:\syllabi\course.docx"
         )
+
+
+def test_courses_can_have_a_subset_of_five_outcomes() -> None:
+    manager = CourseManager()
+
+    course = manager.add_course(
+        "Networks",
+        "CS305",
+        {"CO1": "Explain network models.", "CO5": "Evaluate network designs."},
+    )
+
+    assert course.course_outcomes == {
+        "CO1": "Explain network models.",
+        "CO5": "Evaluate network designs.",
+    }
 
 
 def test_delete_course_reports_whether_a_record_existed() -> None:

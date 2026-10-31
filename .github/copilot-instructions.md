@@ -37,9 +37,9 @@ visible; do not claim compatibility without testing.
 
 ## Labels and prediction output
 
-- The target requires CO1–CO4 for each course. If an official syllabus has a
-  different count or ambiguous definitions, flag it for faculty review.
-  Never invent, merge, or silently discard official outcomes.
+- Courses may store any available subset of CO1–CO5. Never invent outcomes;
+  preserve unsupported outcome IDs in the reviewed syllabus archive and flag
+  them as unavailable for prediction.
 - BL0–BL4 are custom project labels, not the standard six-level revised
   Bloom taxonomy. Require the institution's definitions before treating them
   as official.

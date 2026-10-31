@@ -76,6 +76,123 @@ def test_schema_migration_creates_expected_tables_and_indexes(tmp_path) -> None:
     database.close()
 
 
+def test_v1_migration_preserves_data_and_accepts_co5(tmp_path) -> None:
+    database_path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database_path)
+    connection.executescript(
+        """
+        CREATE TABLE courses (
+            id TEXT PRIMARY KEY,
+            course_name TEXT NOT NULL,
+            course_code TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            syllabus_pdf TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE syllabus_versions (
+            id TEXT PRIMARY KEY,
+            course_id TEXT REFERENCES courses(id) ON DELETE CASCADE
+        );
+        CREATE TABLE course_outcomes (
+            course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            outcome_id TEXT NOT NULL CHECK (
+                outcome_id IN ('CO1', 'CO2', 'CO3', 'CO4')
+            ),
+            description TEXT NOT NULL CHECK (length(trim(description)) > 0),
+            source_pages_json TEXT NOT NULL DEFAULT '[]',
+            source_syllabus_version_id TEXT REFERENCES syllabus_versions(id)
+                ON DELETE SET NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (course_id, outcome_id)
+        );
+        CREATE TABLE questions (
+            id TEXT PRIMARY KEY,
+            course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+            question_text TEXT NOT NULL,
+            marks REAL,
+            question_type TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE TABLE predictions (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            syllabus_version_id TEXT REFERENCES syllabus_versions(id)
+                ON DELETE SET NULL,
+            co_label TEXT NOT NULL CHECK (
+                co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'N/A')
+            ),
+            bl_label TEXT NOT NULL CHECK (
+                bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')
+            ),
+            status TEXT NOT NULL CHECK (
+                status IN ('predicted', 'insufficient_context', 'failed')
+            ),
+            provider_name TEXT,
+            model_name TEXT,
+            model_version TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (id, question_id)
+        );
+        CREATE TABLE approved_labels (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            prediction_id TEXT,
+            co_label TEXT NOT NULL CHECK (
+                co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'N/A')
+            ),
+            bl_label TEXT NOT NULL CHECK (
+                bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')
+            ),
+            review_status TEXT NOT NULL CHECK (
+                review_status IN ('approved', 'corrected')
+            ),
+            reviewed_by TEXT,
+            review_note TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (prediction_id, question_id)
+                REFERENCES predictions(id, question_id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_predictions_question_created
+            ON predictions(question_id, created_at DESC);
+        CREATE INDEX idx_approved_question_created
+            ON approved_labels(question_id, created_at DESC);
+        INSERT INTO courses VALUES ('course-1', 'Networks', 'CS305', NULL, 't', 't');
+        INSERT INTO course_outcomes VALUES ('course-1', 'CO1', 'Explain routing.',
+            '[]', NULL, 't');
+        INSERT INTO questions VALUES ('question-1', 'course-1',
+            'Explain routing.', NULL, NULL, 't', 't');
+        INSERT INTO predictions VALUES ('prediction-1', 'question-1', NULL,
+            'CO1', 'BL1', 'predicted', 'Local', 'model', 'v1', 't');
+        INSERT INTO approved_labels VALUES ('review-1', 'question-1',
+            'prediction-1', 'CO1', 'BL1', 'approved', 'faculty', NULL, 't');
+        PRAGMA user_version = 1;
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    database = DatabaseManager(database_path)
+    course = database.get_course("CS305")
+    assert course is not None
+    assert course["course_outcomes"] == {"CO1": "Explain routing."}
+    assert database.list_question_history()[0]["approved_co"] == "CO1"
+    migrated_question = database.create_question("CS305", "Evaluate network design.")
+    prediction = database.create_prediction(migrated_question["id"], "CO5", "BL4")
+    database.save_approved_labels(
+        migrated_question["id"],
+        "CO5",
+        "BL4",
+        prediction_id=prediction["id"],
+    )
+    assert database.integrity_check() == "ok"
+    with database._lock:
+        assert database._connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall() == []
+    database.close()
+
+
 def test_courses_and_outcomes_survive_database_restart(tmp_path) -> None:
     database_path = tmp_path / "application.sqlite3"
     manager = CourseManager(DatabaseManager(database_path))
@@ -259,7 +376,7 @@ def test_invalid_labels_and_cross_question_prediction_links_are_rejected() -> No
     prediction = database.create_prediction(question_one["id"], "CO1", "BL1")
 
     with pytest.raises(ValueError, match="Invalid course outcome"):
-        database.create_prediction(question_one["id"], "CO5", "BL1")
+        database.create_prediction(question_one["id"], "CO6", "BL1")
     with pytest.raises(ValueError, match="Invalid Bloom-style"):
         database.create_prediction(question_one["id"], "CO1", "BL6")
     with pytest.raises(DatabaseError):

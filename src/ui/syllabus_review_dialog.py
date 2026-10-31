@@ -35,6 +35,21 @@ class SyllabusReviewDialog(QDialog):
         self._source_file = syllabus_data["source_file"]
         self._original_pages = syllabus_data["pages"]
         self._warnings = list(syllabus_data["warnings"])
+        supported_outcomes = {f"CO{number}" for number in range(1, 6)}
+        unsupported_outcomes = sorted(
+            {
+                str(outcome.get("id", "")).strip().upper()
+                for outcome in syllabus_data["course_outcomes"]
+                if isinstance(outcome, dict)
+            }.difference(supported_outcomes)
+        )
+        if unsupported_outcomes:
+            self._warnings.append(
+                "Outcomes outside CO1–CO5 remain in the syllabus archive but "
+                "cannot be used for prediction: "
+                + ", ".join(unsupported_outcomes)
+                + "."
+            )
 
         layout = QVBoxLayout(self)
         source_label = QLabel(
@@ -61,7 +76,7 @@ class SyllabusReviewDialog(QDialog):
 
         buttons = QDialogButtonBox()
         save_button = buttons.addButton(
-            "Save reviewed syllabus",
+            "Save Course",
             QDialogButtonBox.ButtonRole.AcceptRole,
         )
         cancel_button = buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
@@ -188,7 +203,9 @@ class SyllabusReviewDialog(QDialog):
         for row in range(self.outcomes_table.rowCount()):
             outcomes.append(
                 {
-                    "id": self._cell_text(self.outcomes_table, row, 0),
+                    "id": self._cell_text(
+                        self.outcomes_table, row, 0
+                    ).upper(),
                     "description": self._cell_text(self.outcomes_table, row, 1),
                     "source_pages": self._parse_page_numbers(
                         self._cell_text(self.outcomes_table, row, 2)
@@ -234,6 +251,16 @@ class SyllabusReviewDialog(QDialog):
         }
 
     def _validate_and_accept(self) -> None:
+        if not self.course_name_input.text().strip():
+            QMessageBox.warning(
+                self, "Check course details", "Course name is required."
+            )
+            return
+        if not self.course_code_input.text().strip():
+            QMessageBox.warning(
+                self, "Check course details", "Course code is required."
+            )
+            return
         try:
             validate_syllabus_data(self.syllabus_data())
         except (TypeError, ValueError) as error:
@@ -255,7 +282,19 @@ class SyllabusReviewDialog(QDialog):
     def _add_outcome_row(self) -> None:
         row = self.outcomes_table.rowCount()
         self.outcomes_table.insertRow(row)
-        self.outcomes_table.setItem(row, 0, QTableWidgetItem(f"CO{row + 1}"))
+        existing_ids = {
+            self._cell_text(self.outcomes_table, index, 0).upper()
+            for index in range(row)
+        }
+        next_outcome = next(
+            (
+                f"CO{number}"
+                for number in range(1, 6)
+                if f"CO{number}" not in existing_ids
+            ),
+            f"CO{row + 1}",
+        )
+        self.outcomes_table.setItem(row, 0, QTableWidgetItem(next_outcome))
         self.outcomes_table.setItem(row, 1, QTableWidgetItem(""))
         self.outcomes_table.setItem(row, 2, QTableWidgetItem(""))
 

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from src.courses.course_manager import COURSE_OUTCOME_IDS, Course
 from src.syllabus.pdf_extractor import PDFExtractionError, extract_syllabus
+from src.ui.syllabus_review_dialog import SyllabusReviewDialog
 
 
 class CourseDialog(QDialog):
@@ -56,6 +57,7 @@ class CourseDialog(QDialog):
             """
         )
         self._syllabus_pdf = course.syllabus_pdf if course else None
+        self._reviewed_syllabus: dict[str, object] | None = None
         self._outcome_inputs: dict[str, QTextEdit] = {}
 
         layout = QVBoxLayout(self)
@@ -80,7 +82,7 @@ class CourseDialog(QDialog):
                     course.course_outcomes.get(outcome_id, "")
                 )
             self._outcome_inputs[outcome_id] = outcome_input
-            form.addRow(f"{outcome_id} *", outcome_input)
+            form.addRow(outcome_id, outcome_input)
 
         layout.addLayout(form)
 
@@ -120,7 +122,10 @@ class CourseDialog(QDialog):
         layout.addWidget(self.syllabus_picker)
         layout.addWidget(self.syllabus_review_notice)
 
-        help_text = QLabel("Review and correct every course outcome before saving.")
+        help_text = QLabel(
+            "Enter any available CO1–CO5 descriptions. Importing a syllabus "
+            "opens a full review of its course details, units, and outcomes."
+        )
         help_text.setObjectName("mutedText")
         help_text.setWordWrap(True)
         layout.addSpacing(4)
@@ -146,6 +151,47 @@ class CourseDialog(QDialog):
             self._syllabus_pdf,
         )
 
+    def reviewed_syllabus_data(self) -> dict[str, object] | None:
+        if self._reviewed_syllabus is None:
+            return None
+
+        data = dict(self._reviewed_syllabus)
+        original_outcomes = self._reviewed_syllabus.get("course_outcomes", [])
+        if not isinstance(original_outcomes, list):
+            original_outcomes = []
+        original_by_id = {
+            str(outcome.get("id", "")).strip().upper(): dict(outcome)
+            for outcome in original_outcomes
+            if isinstance(outcome, dict)
+        }
+
+        outcomes = []
+        for outcome_id, original in original_by_id.items():
+            if outcome_id in COURSE_OUTCOME_IDS:
+                description = self._outcome_inputs[outcome_id].toPlainText().strip()
+                if not description:
+                    continue
+                original["description"] = description
+            outcomes.append(original)
+
+        for outcome_id in COURSE_OUTCOME_IDS:
+            if outcome_id in original_by_id:
+                continue
+            description = self._outcome_inputs[outcome_id].toPlainText().strip()
+            if description:
+                outcomes.append(
+                    {
+                        "id": outcome_id,
+                        "description": description,
+                        "source_pages": [],
+                    }
+                )
+
+        data["course_name"] = self.name_input.text().strip() or None
+        data["course_code"] = self.code_input.text().strip() or None
+        data["course_outcomes"] = outcomes
+        return data
+
     def _choose_pdf(self) -> None:
         selected_path, _ = QFileDialog.getOpenFileName(
             self,
@@ -162,43 +208,30 @@ class CourseDialog(QDialog):
             QMessageBox.warning(self, "Syllabus could not be read", str(error))
             return
 
+        review_dialog = SyllabusReviewDialog(syllabus_data, self)
+        if review_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._reviewed_syllabus = review_dialog.syllabus_data()
         self._syllabus_pdf = selected_path
         self.syllabus_label.setText(Path(selected_path).name)
-        if syllabus_data["course_name"]:
-            self.name_input.setText(syllabus_data["course_name"])
-        if syllabus_data["course_code"]:
-            self.code_input.setText(syllabus_data["course_code"])
+        if self._reviewed_syllabus["course_name"]:
+            self.name_input.setText(str(self._reviewed_syllabus["course_name"]))
+        if self._reviewed_syllabus["course_code"]:
+            self.code_input.setText(str(self._reviewed_syllabus["course_code"]))
         extracted_outcomes = {
             outcome["id"]: outcome["description"]
-            for outcome in syllabus_data["course_outcomes"]
+            for outcome in self._reviewed_syllabus["course_outcomes"]
         }
         for outcome_id, description in extracted_outcomes.items():
             field = self._outcome_inputs.get(outcome_id)
             if field is not None:
                 field.setPlainText(description)
 
-        unsupported_ids = sorted(
-            set(extracted_outcomes).difference(COURSE_OUTCOME_IDS)
-        )
-        missing_ids = sorted(
-            set(COURSE_OUTCOME_IDS).difference(extracted_outcomes)
-        )
-        if unsupported_ids:
-            syllabus_data["warnings"].append(
-                "The syllabus includes outcomes outside CO1–CO4: "
-                + ", ".join(unsupported_ids)
-                + ". Review the full syllabus before saving this course."
-            )
-        if missing_ids and extracted_outcomes:
-            syllabus_data["warnings"].append(
-                "No new descriptions were found for "
-                + ", ".join(missing_ids)
-                + ". Any existing descriptions were left unchanged; review them."
-            )
-        if syllabus_data["warnings"]:
+        warnings = self._reviewed_syllabus.get("warnings", [])
+        if warnings:
             self.syllabus_review_notice.setText(
                 "Please review the extracted details. "
-                + " ".join(syllabus_data["warnings"])
+                + " ".join(str(warning) for warning in warnings)
             )
         elif extracted_outcomes:
             self.syllabus_review_notice.setText(

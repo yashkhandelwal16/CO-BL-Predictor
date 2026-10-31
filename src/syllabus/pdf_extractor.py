@@ -12,23 +12,31 @@ class PDFExtractionError(ValueError):
 
 
 _UNIT_HEADING = re.compile(
-    r"^\s*(?:unit|module)\s*[-:]?\s*"
+    r"^\s*(?:unit|module)\s*(?:no\.?\s*)?[-:]?\s*"
     r"(?P<number>\d+|[ivxlcdm]+)\b\s*[:.)\-–—]?\s*(?P<title>.*)$",
     re.IGNORECASE,
 )
 _COURSE_OUTCOME = re.compile(
     r"^\s*(?:CO\s*[-:]?\s*(?P<co_number>\d+)|"
-    r"course\s+outcome\s*(?P<outcome_number>\d+))"
+    r"course\s+(?:learning\s+)?outcomes?\s*"
+    r"(?P<outcome_number>\d+))"
     r"\s*[:.)\-–—]?\s*(?P<description>.*)$",
     re.IGNORECASE,
 )
 _COURSE_NAME = re.compile(
-    r"^\s*(?:course\s+name|subject\s+name)\s*[:\-]\s*(?P<value>.+?)\s*$",
+    r"^\s*(?:course\s+(?:name|title)|subject\s+(?:name|title)|"
+    r"name\s+of\s+(?:the\s+)?(?:course|subject))\s*[:\-]?\s*"
+    r"(?P<value>.*?)\s*$",
     re.IGNORECASE,
 )
 _COURSE_CODE = re.compile(
-    r"^\s*(?:course\s+code|subject\s+code|course\s+no\.?)\s*[:\-]\s*"
-    r"(?P<value>[A-Z0-9][A-Z0-9 _/\-]{1,30})\s*$",
+    r"^\s*(?:course\s+(?:code|no\.?|number|id)|"
+    r"subject\s+(?:code|no\.?|id)|paper\s+code)\s*[:\-]?\s*"
+    r"(?P<value>[A-Z0-9][A-Z0-9 _/\-]{1,30}?)?\s*$",
+    re.IGNORECASE,
+)
+_COURSE_CODE_VALUE = re.compile(
+    r"^(?=[A-Z0-9/-]{3,20}$)(?=.*[A-Z])(?=.*\d)[A-Z0-9/-]+$",
     re.IGNORECASE,
 )
 _BULLET = re.compile(r"^\s*(?:[•●▪◦*+\-\ufffd]\s*|\d+[.)]\s*)")
@@ -38,8 +46,11 @@ _UNIT_CONTEXT_END = re.compile(
     r"course\s+name|course\s+code)\b",
     re.IGNORECASE,
 )
-
-
+_OUTCOME_CONTEXT_END = re.compile(
+    r"^\s*(?:list\s+of\s+experiments?|experiments?\s*\d*|"
+    r"textbooks?|references?|unit\s*[-:]?\s*\d+|module\s*[-:]?\s*\d+)\b",
+    re.IGNORECASE,
+)
 def extract_syllabus(pdf_path: str | Path) -> dict[str, Any]:
     """Extract page text and conservative syllabus fields from a PDF."""
     path = Path(pdf_path).expanduser()
@@ -64,8 +75,14 @@ def extract_syllabus(pdf_path: str | Path) -> dict[str, Any]:
                 raise PDFExtractionError("The PDF contains no pages.")
 
             pages = [
-                {"page": page_number, "text": page.get_text("text").strip()}
+                {
+                    "page": page_number,
+                    "text": page.get_text("text", sort=True).strip(),
+                }
                 for page_number, page in enumerate(document, start=1)
+            ]
+            positioned_pages = [
+                _positioned_lines(page) for page in document
             ]
             metadata = document.metadata or {}
     except PDFExtractionError:
@@ -83,7 +100,7 @@ def extract_syllabus(pdf_path: str | Path) -> dict[str, Any]:
         )
 
     course_name, course_code = _extract_course_identity(
-        pages, metadata.get("title")
+        pages, metadata.get("title"), positioned_pages
     )
     units = _extract_units(pages)
     course_outcomes = _extract_course_outcomes(pages)
@@ -211,34 +228,254 @@ def save_syllabus_json(
 
 
 def _extract_course_identity(
-    pages: list[dict[str, Any]], metadata_title: str | None
+    pages: list[dict[str, Any]],
+    metadata_title: str | None,
+    positioned_pages: list[list[tuple[float, list[dict[str, Any]]]]],
 ) -> tuple[str | None, str | None]:
     course_name: str | None = None
     course_code: str | None = None
 
     for page in pages:
-        for line in page["text"].splitlines():
+        lines = page["text"].splitlines()
+        for line_index, line in enumerate(lines):
+            line = _BULLET.sub("", line).strip()
             if course_name is None:
                 name_match = _COURSE_NAME.match(line)
                 if name_match:
-                    course_name = name_match.group("value").strip()
+                    value = name_match.group("value").strip(" :-\t")
+                    if not value:
+                        value = _next_labeled_value(lines, line_index)
+                    if value and not _COURSE_CODE.match(value):
+                        course_name = value
             if course_code is None:
                 code_match = _COURSE_CODE.match(line)
                 if code_match:
-                    course_code = code_match.group("value").strip()
+                    value = (code_match.group("value") or "").strip(" :-\t")
+                    if not value:
+                        value = _next_labeled_value(lines, line_index)
+                    normalized_code = re.sub(r"\s+", "", value).upper()
+                    if _COURSE_CODE_VALUE.fullmatch(normalized_code):
+                        course_code = normalized_code
             if course_name and course_code:
                 return course_name, course_code
 
+    if course_name is None or course_code is None:
+        layout_name, layout_code = _extract_tabular_course_identity(
+            positioned_pages
+        )
+        course_name = course_name or layout_name
+        course_code = course_code or layout_code
+
     if course_name is None and metadata_title:
         normalized_title = " ".join(metadata_title.split())
-        if normalized_title and normalized_title.casefold() not in {
+        normalized_title = re.sub(
+            r"^(?:Microsoft\s+Word|Adobe\s+InDesign)\s*[-–—:]\s*",
+            "",
+            normalized_title,
+            flags=re.IGNORECASE,
+        )
+        generic_metadata = (
             "untitled",
             "microsoft word",
             "document",
-        }:
+            "syllabus",
+            "batch",
+            "semester",
+        )
+        if (
+            normalized_title
+            and len(normalized_title) <= 100
+            and not any(
+                marker in normalized_title.casefold()
+                for marker in generic_metadata
+            )
+        ):
             course_name = normalized_title
 
     return course_name, course_code
+
+
+def _next_labeled_value(lines: list[str], label_index: int) -> str:
+    for candidate in lines[label_index + 1 :]:
+        value = " ".join(candidate.split()).strip(" :-\t")
+        if not value:
+            continue
+        if (
+            _COURSE_NAME.match(value)
+            or _COURSE_CODE.match(value)
+            or _is_metadata_heading(value)
+        ):
+            continue
+        return value
+    return ""
+
+
+def _is_metadata_heading(value: str) -> bool:
+    normalized = re.sub(r"[^a-z]", "", value.casefold())
+    return normalized in {
+        "coursecode",
+        "coursename",
+        "subjectcode",
+        "subjectname",
+        "papercode",
+        "hours",
+        "hoursperweek",
+        "credits",
+        "credit",
+        "semester",
+        "l",
+        "t",
+        "p",
+    }
+
+
+def _positioned_lines(
+    page: pymupdf.Page,
+) -> list[tuple[float, list[dict[str, Any]]]]:
+    raw_lines = []
+    for block in page.get_text("rawdict")["blocks"]:
+        for line in block.get("lines", []):
+            characters = [
+                character
+                for span in line.get("spans", [])
+                for character in span.get("chars", [])
+            ]
+            if characters:
+                raw_lines.append(
+                    (float(line["bbox"][1]), characters)
+                )
+
+    positioned_lines: list[tuple[float, list[dict[str, Any]]]] = []
+    for line_y, characters in sorted(raw_lines, key=lambda item: item[0]):
+        matching_row = next(
+            (
+                index
+                for index, (row_y, _) in enumerate(positioned_lines)
+                if abs(row_y - line_y) <= 2
+            ),
+            None,
+        )
+        if matching_row is None:
+            positioned_lines.append((line_y, characters))
+        else:
+            row_y, row_characters = positioned_lines[matching_row]
+            positioned_lines[matching_row] = (
+                row_y,
+                row_characters + characters,
+            )
+
+    return [
+        (line_y, sorted(characters, key=lambda item: item["bbox"][0]))
+        for line_y, characters in positioned_lines
+    ]
+
+
+def _extract_tabular_course_identity(
+    positioned_pages: list[list[tuple[float, list[dict[str, Any]]]]],
+) -> tuple[str | None, str | None]:
+    for lines in positioned_pages:
+        code_headers: list[tuple[float, float]] = []
+        name_headers: list[tuple[float, float]] = []
+        later_columns: list[tuple[float, float]] = []
+        for line_y, characters in lines:
+            line_text = "".join(character["c"] for character in characters)
+            folded_text = line_text.casefold()
+            code_match = re.search(
+                r"(?:course|subject)\s*(?:code|no\.?|number|id)|paper\s*code",
+                folded_text,
+            )
+            name_match = re.search(
+                r"(?:course|subject)\s*(?:name|title)|"
+                r"name\s*of\s*(?:the\s*)?(?:course|subject)",
+                folded_text,
+            )
+            later_match = re.search(
+                r"hours|credits|semester|\bL\s*T\s*P\b",
+                folded_text,
+            )
+            if code_match is not None:
+                code_headers.append(
+                    (
+                        line_y,
+                        float(characters[code_match.start()]["bbox"][0]),
+                    )
+                )
+            if name_match is not None:
+                name_headers.append(
+                    (
+                        line_y,
+                        float(characters[name_match.start()]["bbox"][0]),
+                    )
+                )
+            if later_match is not None:
+                later_columns.append(
+                    (
+                        line_y,
+                        float(characters[later_match.start()]["bbox"][0]),
+                    )
+                )
+
+        header_pairs = [
+            (code_header, name_header)
+            for code_header in code_headers
+            for name_header in name_headers
+            if abs(code_header[0] - name_header[0]) <= 30
+            and code_header[1] < name_header[1]
+        ]
+        if not header_pairs:
+            continue
+        code_header, name_header = min(
+            header_pairs,
+            key=lambda pair: (
+                abs(pair[0][0] - pair[1][0]),
+                pair[0][0] + pair[1][0],
+            ),
+        )
+        header_y = max(code_header[0], name_header[0])
+        next_column_x = next(
+            (
+                column_x
+                for column_y, column_x in later_columns
+                if abs(column_y - header_y) <= 30
+                and column_x > name_header[1]
+            ),
+            None,
+        )
+
+        for line_y, characters in lines:
+            if line_y <= header_y or line_y - header_y > 110:
+                continue
+            code_characters = [
+                character
+                for character in characters
+                if code_header[1] - 4
+                <= float(character["bbox"][0])
+                < name_header[1] - 4
+            ]
+            code_text = "".join(
+                character["c"] for character in code_characters
+            )
+            course_code = re.sub(r"[^A-Z0-9/-]", "", code_text.upper())
+            if _COURSE_CODE_VALUE.fullmatch(course_code) is None:
+                continue
+            row_y = line_y
+            name_characters = [
+                character
+                for name_line_y, name_line in lines
+                if abs(name_line_y - row_y) <= 24
+                for character in name_line
+                if float(character["bbox"][0]) >= name_header[1] - 2
+                and (
+                    next_column_x is None
+                    or float(character["bbox"][0]) < next_column_x
+                )
+            ]
+            course_name = " ".join(
+                "".join(character["c"] for character in name_characters).split()
+            )
+            return course_name or None, course_code
+
+    return None, None
 
 
 def _extract_units(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -248,7 +485,7 @@ def _extract_units(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for page in pages:
         page_number = page["page"]
         for raw_line in page["text"].splitlines():
-            line = " ".join(raw_line.split())
+            line = " ".join(_BULLET.sub("", raw_line).split())
             if not line:
                 continue
 
@@ -258,9 +495,15 @@ def _extract_units(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 if number is None:
                     current_unit = None
                     continue
+                title = re.sub(
+                    r"(?:^|\s)\d+\s*hrs?\b.*$",
+                    "",
+                    heading.group("title").strip(),
+                    flags=re.IGNORECASE,
+                )
                 current_unit = {
                     "unit_number": number,
-                    "unit_title": heading.group("title").strip(),
+                    "unit_title": title,
                     "topics": [],
                     "source_pages": [page_number],
                 }
@@ -276,6 +519,12 @@ def _extract_units(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             topic = _BULLET.sub("", line).strip()
             if not topic:
                 continue
+            if re.match(r"^\d+\s*hrs?\b", topic, re.IGNORECASE):
+                continue
+            if not current_unit["unit_title"]:
+                title_match = re.match(r"(?P<title>[^:;.]+)\s*:", topic)
+                if title_match:
+                    current_unit["unit_title"] = title_match.group("title").strip()
             if topic not in current_unit["topics"]:
                 current_unit["topics"].append(topic)
             if page_number not in current_unit["source_pages"]:
@@ -291,7 +540,7 @@ def _extract_course_outcomes(pages: list[dict[str, Any]]) -> list[dict[str, Any]
     for page in pages:
         page_number = page["page"]
         for raw_line in page["text"].splitlines():
-            line = " ".join(raw_line.split())
+            line = " ".join(_BULLET.sub("", raw_line).split())
             if not line:
                 continue
 
@@ -322,6 +571,9 @@ def _extract_course_outcomes(pages: list[dict[str, Any]]) -> list[dict[str, Any]
             if current_outcome is None:
                 continue
             if _UNIT_HEADING.match(line) or _UNIT_CONTEXT_END.match(line):
+                current_outcome = None
+                continue
+            if _OUTCOME_CONTEXT_END.match(line):
                 current_outcome = None
                 continue
             current_outcome["description"] = _append_text(

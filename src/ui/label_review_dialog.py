@@ -18,6 +18,7 @@ class LabelReviewDialog(QDialog):
         predicted_bl: str | None,
         approved_co: str | None = None,
         approved_bl: str | None = None,
+        available_co_labels: tuple[str, ...] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -38,7 +39,16 @@ class LabelReviewDialog(QDialog):
 
         form = QFormLayout()
         self.co_selector = QComboBox()
-        self.co_selector.addItems(["CO1", "CO2", "CO3", "CO4", "N/A"])
+        self.co_selector.addItems(
+            [
+                *(
+                    available_co_labels
+                    if available_co_labels is not None
+                    else ("CO1", "CO2", "CO3", "CO4", "CO5")
+                ),
+                "N/A",
+            ]
+        )
         self.bl_selector = QComboBox()
         self.bl_selector.addItems(["BL0", "BL1", "BL2", "BL3", "BL4", "N/A"])
         self.reviewer_input = QLineEdit()

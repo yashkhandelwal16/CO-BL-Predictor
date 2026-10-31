@@ -57,8 +57,8 @@ in separate modules:
    relevant reviewed syllabus topics, configured BL rules, and approved
    same-course examples.
 4. The local inference service returns structured candidate labels. A
-   validator rejects labels outside the selected course's CO1–CO4 and BL0–BL4
-   sets; it does not repair malformed output by guessing.
+   validator rejects labels outside the selected course's saved CO1–CO5
+   outcomes and BL0–BL4 sets; it does not repair malformed output by guessing.
 5. SQLite stores course/syllabus versions, questions, predictions, and
    faculty-approved labels separately. The UI displays only the required
    prediction labels and review state.
@@ -96,9 +96,11 @@ modules or move the prototype wholesale before the relevant phase.
 
 ## Label and output policy
 
-- Each course uses exactly CO1, CO2, CO3, and CO4. If the official syllabus
-  does not support that count, flag the course for faculty review; never
-  truncate or invent official outcomes.
+- A course can store any available subset of CO1–CO5, including CO5. Do not
+  invent outcomes; preserve labels beyond CO5 in the reviewed syllabus archive
+  and flag them as unavailable for prediction.
+- Prediction requires at least one saved CO description and only permits
+  labels that exist for the selected course.
 - The project uses custom BL0–BL4 labels, not the standard six-level revised
   Bloom taxonomy. Faculty/institution definitions must be documented before
   the rules are treated as official.
@@ -168,26 +170,33 @@ Then run the project tests:
 ```
 
 The Courses screen supports create, edit, delete, and name/code search. It
-requires a name, a unique course code, and four separate CO descriptions.
-Courses and their CO descriptions persist between application launches.
-Selecting a syllabus PDF in the course form extracts clearly labelled COs for
-faculty to review and edit before saving.
+requires a name and a unique course code; any available CO1–CO5 descriptions
+may be entered, and courses without COs cannot be predicted until outcomes are
+added. Courses and their CO descriptions persist between application launches.
+Selecting a syllabus PDF opens the complete course, unit, topic, and outcome
+review before saving the course and reviewed syllabus together.
 
 The Syllabus screen extracts text from text-based PDFs and opens an editable
-review of course details, units, topics, and outcomes. Reviewed JSON and
-versioned syllabus metadata are saved in the per-user application data folder;
-the original PDF remains in its original location. Unclear or missing fields
-are flagged. Scanned PDFs without selectable text are reported; OCR is not
-included. Before prediction, the app rejects common greetings and requires at
-least one meaningful term in the question to match the selected course's CO
-descriptions or latest reviewed syllabus unit titles/topics. Rejected input is
-not sent to the model or saved in History. This is a conservative text-match
-check, not semantic understanding; add complete course outcomes and review the
-syllabus to reduce false rejections of valid paraphrases. The Predict screen
-produces local suggested labels for faculty review. In History, select a
-question to approve or correct its labels; the original suggestion remains
-saved separately. Reviewed labels can support retrieval of similar examples
-from that course. History also offers data backup and JSON export.
+review of course details, units, topics, and outcomes. Extraction recognizes
+common course/subject name and code labels, table-based course headers, unit
+heading variants, and CO outcome labels; PDF layouts and wording still vary,
+so extracted details must be checked and corrected in the review screen.
+Saving creates or updates the matching course and adds a reviewed syllabus
+version in one database transaction. Reviewed JSON and versioned metadata are
+saved in the per-user application data folder; the original PDF remains in its
+original location. Unclear or missing fields are flagged. Scanned PDFs without
+selectable text are reported; OCR is not included. Before prediction, the app
+rejects common greetings and requires meaningful-term overlap with the selected
+course's saved CO descriptions or latest reviewed syllabus topics. For
+definition-style questions beginning with “what/who is/are”, unrelated terms
+must not outweigh the syllabus-matching terms. Rejected input is not sent to
+the model or saved in History. This is a conservative text-match check, not
+semantic understanding; add course outcomes and review the syllabus to reduce
+false rejections of valid paraphrases. The Predict screen produces local suggested
+labels for faculty review. In History, select a question to approve or correct
+its labels; the original suggestion remains saved separately. Reviewed labels
+can support retrieval of similar examples from that course. History also
+offers data backup and JSON export.
 
 On Windows, the application data folder is
 `%LOCALAPPDATA%\\CO-BL-Predictor`. It contains the database and reviewed
@@ -360,7 +369,7 @@ network-socket blocking for local inference.
 
 To report accuracy, prepare a UTF-8 JSON Lines file from a faculty-labelled,
 held-out set. Each line must contain `expected_co`, `predicted_co`,
-`expected_bl`, and `predicted_bl`. Expected labels must be CO1–CO4 and
+`expected_bl`, and `predicted_bl`. Expected labels must be CO1–CO5 and
 BL0–BL4; predictions may also be `N/A`. Keep examples used for prompt design
 or retrieval out of the held-out set, and do not treat unreviewed model
 predictions as ground truth. Questions may be omitted from this metrics file;
@@ -437,8 +446,9 @@ Do those release checks before publishing a distributable.
   complete.
 - Phase 1 — PySide6 GUI: implemented and smoke-tested under Python 3.12.4;
   Python 3.11 setup remains blocked until that interpreter is installed.
-- Phase 2 — Course management: create/edit/delete/search and independent
-  CO1–CO4 fields implemented and tested.
+- Phase 2 — Course management and smart syllabus import: create/edit/delete/
+  search, variable CO1–CO5 outcomes, reviewed course creation, and syllabus
+  versioning implemented and tested.
 - Phase 3 — PDF extraction and reviewable JSON: implemented for text-based
   PDFs, with editable details, unit/topic and outcome tables, page references,
   warnings, validation, and source-file preservation.

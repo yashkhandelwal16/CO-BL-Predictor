@@ -247,24 +247,119 @@ def test_syllabus_related_academic_question_reaches_prediction(
     database.close()
 
 
-def test_missing_course_outcome_stops_before_inference(tmp_path, monkeypatch):
+def test_vlsi_keyword_does_not_make_an_unrelated_personal_question_valid(
+    tmp_path,
+):
+    database = DatabaseManager(tmp_path / "vlsi.sqlite3")
+    CourseManager(database).add_course(
+        "VLSI Design",
+        "EC3CO20",
+        {
+            "CO1": "Explain VLSI design principles and integrated circuits.",
+            "CO2": "Analyze CMOS fabrication and semiconductor devices.",
+        },
+    )
+    syllabus = reviewed_syllabus("EC3CO20")
+    syllabus["course_name"] = "VLSI Design"
+    syllabus["units"] = [
+        {
+            "unit_number": 1,
+            "unit_title": "VLSI design",
+            "topics": ["Integrated circuits", "CMOS fabrication"],
+        }
+    ]
+    database.save_syllabus_version(syllabus, tmp_path / "vlsi.json")
+    client = FakeChatClient(["CO1", "BL1"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    with pytest.raises(
+        PredictionInputError,
+        match="valid academic question related to the selected course syllabus",
+    ):
+        predictor.predict("EC3CO20", "what is yash vlsi khandel")
+
+    assert client.messages == []
+    assert database.list_question_history() == []
+    database.close()
+
+
+def test_short_vlsi_question_with_relevant_course_terms_is_accepted(tmp_path):
+    database = DatabaseManager(tmp_path / "vlsi.sqlite3")
+    CourseManager(database).add_course(
+        "VLSI Design",
+        "EC3CO20",
+        {"CO1": "Explain VLSI design principles and integrated circuits."},
+    )
+    client = FakeChatClient(["CO1", "BL1"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("EC3CO20", "Explain VLSI design.")
+
+    assert result.co_label == "CO1"
+    assert len(client.messages) == 2
+    database.close()
+
+
+def test_short_vlsi_definition_question_is_not_blocked_by_identity_guard(
+    tmp_path,
+):
+    database = DatabaseManager(tmp_path / "vlsi.sqlite3")
+    CourseManager(database).add_course(
+        "VLSI Design",
+        "EC3CO20",
+        {"CO1": "Explain VLSI design principles and integrated circuits."},
+    )
+    client = FakeChatClient(["CO1", "BL1"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("EC3CO20", "What is VLSI?")
+
+    assert result.co_label == "CO1"
+    assert len(client.messages) == 2
+    database.close()
+
+
+def test_course_without_outcomes_stops_before_inference(tmp_path, monkeypatch):
     database = make_database(tmp_path)
     course = database.get_course("CS305")
     assert course is not None
     incomplete_course = dict(course)
     incomplete_course["course_outcomes"] = dict(course["course_outcomes"])
-    incomplete_course["course_outcomes"].pop("CO4")
+    incomplete_course["course_outcomes"].clear()
     monkeypatch.setattr(
         database, "get_course", lambda _course_code: incomplete_course
     )
     client = FakeChatClient(["CO1", "BL1"])
     predictor = QuestionPredictor(database, client, load_bloom_config())
 
-    with pytest.raises(PredictionInputError, match="descriptions for CO1 through CO4"):
+    with pytest.raises(PredictionInputError, match="at least one valid CO1–CO5"):
         predictor.predict("CS305", "Explain how routers forward packets.")
 
     assert client.messages == []
     assert database.list_question_history() == []
+    database.close()
+
+
+def test_prediction_accepts_only_saved_subset_including_co5(tmp_path):
+    database = DatabaseManager(tmp_path / "predictor.sqlite3")
+    CourseManager(database).add_course(
+        "Computer Networks",
+        "CS305",
+        {
+            "CO1": "Explain network routing models.",
+            "CO5": "Evaluate network routing security.",
+        },
+    )
+    client = FakeChatClient(["CO5", "BL4"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("CS305", "Evaluate network routing security.")
+
+    assert result.co_label == "CO5"
+    co_prompt = client.messages[0][0][1]["content"]
+    assert "CO5" in co_prompt
+    assert "CO2" not in co_prompt
+    assert "CO4" not in co_prompt
     database.close()
 
 

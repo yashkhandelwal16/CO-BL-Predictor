@@ -241,6 +241,7 @@ class MainWindow(QMainWindow):
             label = QLabel(f"{outcome_id}:")
             label.setObjectName("bodyText")
             label.setWordWrap(True)
+            label.hide()
             self.course_outcome_labels[outcome_id] = label
             detail_layout.addWidget(label)
 
@@ -352,6 +353,7 @@ class MainWindow(QMainWindow):
             self.course_detail_syllabus.setText("")
             for outcome_id, label in self.course_outcome_labels.items():
                 label.setText(f"{outcome_id}:")
+                label.hide()
             return
 
         self.course_detail_name.setText(course.name)
@@ -367,7 +369,15 @@ class MainWindow(QMainWindow):
             )
         self.course_detail_syllabus.setText(f"Syllabus PDF: {syllabus}")
         for outcome_id, label in self.course_outcome_labels.items():
-            label.setText(f"{outcome_id}: {course.course_outcomes[outcome_id]}")
+            description = course.course_outcomes.get(outcome_id)
+            label.setText(
+                f"{outcome_id}: {description}" if description else ""
+            )
+            label.setVisible(bool(description))
+        if not course.course_outcomes:
+            label = self.course_outcome_labels["CO1"]
+            label.setText("No course outcomes saved.")
+            label.show()
 
     def _create_course(self) -> None:
         self._edit_course()
@@ -383,7 +393,24 @@ class MainWindow(QMainWindow):
         while dialog.exec() == QDialog.DialogCode.Accepted:
             name, code, outcomes, syllabus_pdf = dialog.course_values()
             try:
-                if course is None:
+                reviewed_data = dialog.reviewed_syllabus_data()
+                if reviewed_data is not None:
+                    reviewed_data["course_name"] = name.strip() or None
+                    reviewed_data["course_code"] = code.strip() or None
+                    saved_path = save_syllabus_json(
+                        reviewed_data,
+                        (
+                            self.database.user_data_directory / "parsed_syllabi"
+                            if self.database.user_data_directory
+                            else None
+                        ),
+                    )
+                    saved_course = self.course_manager.save_reviewed_syllabus(
+                        reviewed_data,
+                        saved_path,
+                        original_code=course.code if course else None,
+                    )
+                elif course is None:
                     saved_course = self.course_manager.add_course(
                         name, code, outcomes, syllabus_pdf
                     )
@@ -391,7 +418,7 @@ class MainWindow(QMainWindow):
                     saved_course = self.course_manager.update_course(
                         course.code, name, code, outcomes, syllabus_pdf
                     )
-            except CourseValidationError as error:
+            except (CourseValidationError, OSError, ValueError) as error:
                 QMessageBox.warning(self, "Course not saved", str(error))
                 continue
 
@@ -495,15 +522,14 @@ class MainWindow(QMainWindow):
                 else None
             )
             saved_path = save_syllabus_json(reviewed_data, output_directory)
-            version = self.database.save_syllabus_version(
-                reviewed_data,
-                saved_path,
+            saved_course = self.course_manager.save_reviewed_syllabus(
+                reviewed_data, saved_path
             )
-        except (DatabaseError, OSError, ValueError) as error:
+        except (CourseValidationError, DatabaseError, OSError, ValueError) as error:
             QMessageBox.critical(
                 self,
-                "Syllabus could not be saved",
-                f"Check the syllabus details and available storage, then try again. "
+                "Course and syllabus could not be saved",
+                f"Check the course details and available storage, then try again. "
                 f"Your original PDF has not been changed.\n\n{error}",
             )
             return
@@ -512,9 +538,9 @@ class MainWindow(QMainWindow):
             f"Reviewed: {Path(selected_path).name}"
         )
         self.refresh_syllabus_versions()
-        self.refresh_course_list()
+        self.refresh_course_list(preferred_code=saved_course.code)
         self.statusBar().showMessage(
-            f"Saved syllabus version {version['version_number']}.", 6000
+            f"Saved course {saved_course.code} and its reviewed syllabus.", 6000
         )
 
     def refresh_syllabus_versions(self) -> None:
@@ -732,12 +758,16 @@ class MainWindow(QMainWindow):
         if not record:
             return
 
+        course = self.database.get_course(record["course_code"])
         dialog = LabelReviewDialog(
             question_text=record["question_text"],
             predicted_co=record["predicted_co"],
             predicted_bl=record["predicted_bl"],
             approved_co=record["approved_co"],
             approved_bl=record["approved_bl"],
+            available_co_labels=(
+                tuple(course["course_outcomes"]) if course is not None else ()
+            ),
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:

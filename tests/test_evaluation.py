@@ -58,6 +58,20 @@ def test_evaluation_reports_separate_accuracy_class_scores_and_abstention():
     assert 0.0 <= report["bl"]["macro_f1"] <= 1.0
 
 
+def test_evaluation_accepts_co5() -> None:
+    record = {
+        "expected_co": "CO5",
+        "predicted_co": "CO5",
+        "expected_bl": "BL4",
+        "predicted_bl": "BL4",
+    }
+
+    report = evaluate_predictions([record])
+
+    assert report["co"]["per_class"]["CO5"]["support"] == 1
+    assert report["co"]["accuracy"] == 1.0
+
+
 @pytest.mark.parametrize(
     ("records", "message"),
     [
