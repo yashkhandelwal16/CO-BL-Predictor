@@ -4,6 +4,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pymupdf
 from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTableWidgetItem,
     QTextEdit,
 )
 
@@ -48,6 +50,63 @@ def test_window_has_all_phase_one_pages() -> None:
     assert window.delete_course_button.text() == "Delete"
     assert window.minimumWidth() >= 900
     assert window.minimumHeight() >= 600
+
+
+def test_displayed_text_is_selectable_and_list_items_can_be_copied() -> None:
+    application = get_application()
+    window = MainWindow()
+    selectable = (
+        Qt.TextInteractionFlag.TextSelectableByMouse
+        | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    )
+    assert window.page_title.textInteractionFlags() & selectable == selectable
+
+    outcomes = {
+        outcome_id: f"Description for {outcome_id}"
+        for outcome_id in COURSE_OUTCOME_IDS
+    }
+    window.course_manager.add_course("Computer Networks", "CS305", outcomes)
+    window.refresh_course_list()
+    item = window.course_list.item(0)
+    window.course_list.setCurrentItem(item)
+    window.course_list.setFocus()
+
+    QTest.keyClick(window.course_list, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+
+    assert application.clipboard().text() == item.text()
+
+
+def test_history_table_items_can_be_copied() -> None:
+    application = get_application()
+    window = MainWindow()
+    window.history_table.setRowCount(1)
+    item = QTableWidgetItem("Explain network routing.")
+    window.history_table.setItem(0, 0, item)
+    item.setSelected(True)
+    window.history_table.setFocus()
+
+    QTest.keyClick(
+        window.history_table,
+        Qt.Key.Key_C,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+
+    assert application.clipboard().text() == "Explain network routing."
+
+
+def test_message_box_text_is_selectable() -> None:
+    application = get_application()
+    MainWindow()
+    message = QMessageBox()
+    message.setText("Syllabus could not be read.")
+    message.show()
+    application.processEvents()
+
+    assert message.textInteractionFlags() & (
+        Qt.TextInteractionFlag.TextSelectableByMouse
+        | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    )
+    message.close()
 
 
 def test_navigation_changes_page_and_header() -> None:

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.syllabus.pdf_extractor import validate_syllabus_data
+from src.ui.selectable_text import enable_text_selection
 
 
 class SyllabusReviewDialog(QDialog):
@@ -83,6 +84,7 @@ class SyllabusReviewDialog(QDialog):
         save_button.clicked.connect(self._validate_and_accept)
         cancel_button.clicked.connect(self.reject)
         layout.addWidget(buttons)
+        enable_text_selection(self)
 
     def _course_details_tab(self, data: dict[str, Any]) -> QWidget:
         page = QWidget()

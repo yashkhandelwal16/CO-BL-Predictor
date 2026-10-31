@@ -39,6 +39,7 @@ from src.syllabus.pdf_extractor import (
 )
 from src.ui.course_dialog import CourseDialog
 from src.ui.label_review_dialog import LabelReviewDialog
+from src.ui.selectable_text import enable_text_selection
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
 
 
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central_widget)
 
         self._build_pages()
+        enable_text_selection(self)
         self.refresh_prediction_courses()
         self.statusBar().showMessage("Welcome. Add a course to get started.")
         self.navigate("Dashboard")

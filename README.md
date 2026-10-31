@@ -106,6 +106,10 @@ modules or move the prototype wholesale before the relevant phase.
   the same course code restores that record rather than creating a duplicate.
   Migration also links eligible reviewed syllabus imports from earlier database
   versions to the shared course records.
+- Display labels throughout the main window and review dialogs support mouse
+  and keyboard selection. Course/syllabus lists and tables support copying
+  selected entries with Ctrl+C; read-only and editable text fields retain their
+  standard selection and copy shortcuts.
 - The project uses custom BL0–BL4 labels, not the standard six-level revised
   Bloom taxonomy. Faculty/institution definitions must be documented before
   the rules are treated as official.

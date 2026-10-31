@@ -9,6 +9,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from src.ui.selectable_text import enable_text_selection
+
 
 class LabelReviewDialog(QDialog):
     def __init__(
@@ -76,6 +78,7 @@ class LabelReviewDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        enable_text_selection(self)
 
     @staticmethod
     def _select_value(selector: QComboBox, value: str) -> None:

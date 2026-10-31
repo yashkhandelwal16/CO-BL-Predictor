@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from src.courses.course_manager import COURSE_OUTCOME_IDS, Course
 from src.syllabus.pdf_extractor import PDFExtractionError, extract_syllabus
+from src.ui.selectable_text import enable_text_selection
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
 
 
@@ -138,6 +139,7 @@ class CourseDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+        enable_text_selection(self)
 
     def course_values(self) -> tuple[str, str, dict[str, str], str | None]:
         outcomes = {
