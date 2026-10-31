@@ -101,6 +101,11 @@ modules or move the prototype wholesale before the relevant phase.
   and flag them as unavailable for prediction.
 - Prediction requires at least one saved CO description and only permits
   labels that exist for the selected course.
+- Archived courses are excluded from active course and prediction selectors;
+  their course records and prediction history remain in SQLite. Re-importing
+  the same course code restores that record rather than creating a duplicate.
+  Migration also links eligible reviewed syllabus imports from earlier database
+  versions to the shared course records.
 - The project uses custom BL0–BL4 labels, not the standard six-level revised
   Bloom taxonomy. Faculty/institution definitions must be documented before
   the rules are treated as official.

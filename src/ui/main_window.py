@@ -297,17 +297,18 @@ class MainWindow(QMainWindow):
     def refresh_prediction_courses(self) -> None:
         if not hasattr(self, "course_selector"):
             return
-        selected_code = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
-        courses = self.course_manager.list_courses()
+        selected_id = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        courses = self.database.list_courses()
         self.course_selector.blockSignals(True)
         self.course_selector.clear()
         for course in courses:
             self.course_selector.addItem(
-                f"{course.name} ({course.code})", course.code
+                f"{course['course_name']} ({course['course_code']})",
+                course["id"],
             )
-        if selected_code:
+        if selected_id:
             selected_index = self.course_selector.findData(
-                selected_code, Qt.ItemDataRole.UserRole
+                selected_id, Qt.ItemDataRole.UserRole
             )
             if selected_index >= 0:
                 self.course_selector.setCurrentIndex(selected_index)
@@ -315,13 +316,56 @@ class MainWindow(QMainWindow):
             self.course_selector.setCurrentIndex(0)
         self.course_selector.blockSignals(False)
         self.course_selector.setEnabled(bool(courses))
+        self._prediction_course_changed()
+
+    def _prediction_course_changed(self) -> None:
+        if not hasattr(self, "course_selector"):
+            return
+        course_id = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        course = self.database.get_course_by_id(course_id) if course_id else None
+        if course is None:
+            self.prediction_course_details.setText(
+                "Select a course to review its saved outcomes and syllabus."
+            )
+        else:
+            outcomes = course["course_outcomes"]
+            versions = self.database.list_syllabus_versions(
+                course_id=course["id"]
+            )
+            latest_reviewed = next(
+                (
+                    version
+                    for version in versions
+                    if version["review_status"] == "reviewed"
+                ),
+                None,
+            )
+            syllabus_text = (
+                f"Reviewed syllabus: {Path(latest_reviewed['source_pdf_path']).name}"
+                if latest_reviewed
+                else "No reviewed syllabus linked; using saved course outcomes."
+            )
+            outcome_text = "\n".join(
+                f"{label}: {description}"
+                for label, description in sorted(outcomes.items())
+            ) or "No valid course outcomes are saved."
+            self.prediction_course_details.setText(
+                f"{syllabus_text}\n{outcome_text}"
+            )
         self._update_prediction_button()
 
     def _update_prediction_button(self) -> None:
         if not hasattr(self, "predict_button"):
             return
-        has_course = (
-            self.course_selector.currentData(Qt.ItemDataRole.UserRole) is not None
+        course_id = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        course = self.database.get_course_by_id(course_id) if course_id else None
+        has_course = bool(
+            course
+            and course["course_outcomes"]
+            and all(
+                label in COURSE_OUTCOME_IDS and str(description).strip()
+                for label, description in course["course_outcomes"].items()
+            )
         )
         has_question = bool(self.question_input.toPlainText().strip())
         self.predict_button.setEnabled(
@@ -436,8 +480,8 @@ class MainWindow(QMainWindow):
         answer = QMessageBox.question(
             self,
             "Delete course",
-            f"Delete {course.name} ({course.code}), including its syllabus "
-            "versions, questions, and review history?",
+            f"Delete {course.name} ({course.code}) from active course lists? "
+            "Its syllabus and prediction history will be preserved.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
@@ -450,7 +494,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Course could not be deleted", str(error))
             return
         self.refresh_course_list()
-        self.statusBar().showMessage(f"Deleted course {course.code}.", 4000)
+        self.statusBar().showMessage(
+            f"Deleted course {course.code}. Its history was preserved.", 5000
+        )
 
     def _syllabus_page(self) -> QWidget:
         page, layout = self._new_page(
@@ -574,8 +620,13 @@ class MainWindow(QMainWindow):
         self.course_selector.setPlaceholderText("Select a course")
         self.course_selector.setEnabled(False)
         self.course_selector.currentIndexChanged.connect(
-            self._update_prediction_button
+            self._prediction_course_changed
         )
+        self.prediction_course_details = QLabel(
+            "Select a course to review its saved outcomes and syllabus."
+        )
+        self.prediction_course_details.setObjectName("noticeText")
+        self.prediction_course_details.setWordWrap(True)
 
         question_label = QLabel("Examination question")
         question_label.setObjectName("fieldLabel")
@@ -606,6 +657,7 @@ class MainWindow(QMainWindow):
 
         form_layout.addWidget(course_label)
         form_layout.addWidget(self.course_selector)
+        form_layout.addWidget(self.prediction_course_details)
         form_layout.addWidget(question_label)
         form_layout.addWidget(self.question_input)
         form_layout.addWidget(self.predict_button, 0, Qt.AlignmentFlag.AlignLeft)
@@ -616,16 +668,16 @@ class MainWindow(QMainWindow):
         return page
 
     def _start_prediction(self) -> None:
-        course_code = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        course_id = self.course_selector.currentData(Qt.ItemDataRole.UserRole)
         question = self.question_input.toPlainText()
-        if not course_code or not question.strip():
+        if not course_id or not question.strip():
             self._update_prediction_button()
             return
         self.prediction_result.clear()
         self.prediction_status.setText("Preparing a suggestion...")
         worker = PredictionWorker(
             self.database,
-            course_code,
+            course_id,
             question,
             self.bloom_config,
         )

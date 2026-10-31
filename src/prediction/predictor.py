@@ -107,21 +107,25 @@ class QuestionPredictor:
 
     def predict(
         self,
-        course_code: str,
+        course_id: str,
         question_text: str,
         *,
         cancellation_event: Any = None,
     ) -> PredictionResult:
         normalized_question = question_text.strip()
-        normalized_course_code = course_code.strip().upper()
+        selected_course = course_id.strip()
         if not normalized_question:
             raise PredictionInputError("Enter an examination question.")
-        if not normalized_course_code:
+        if not selected_course:
             raise PredictionInputError("Select a course.")
 
-        course = self.database.get_course(normalized_course_code)
+        course = self.database.get_course_by_id(selected_course)
+        if course is None:
+            course = self.database.get_course(selected_course.upper())
         if course is None:
             raise PredictionInputError("The selected course is no longer available.")
+        normalized_course_id = course["id"]
+        normalized_course_code = course["course_code"]
         outcomes = course["course_outcomes"]
         if not outcomes or any(
             label not in CO_LABELS or not str(description).strip()
@@ -131,7 +135,7 @@ class QuestionPredictor:
                 "The selected course needs at least one valid CO1–CO5 description."
             )
 
-        syllabus = self._reviewed_syllabus(normalized_course_code)
+        syllabus = self._reviewed_syllabus(normalized_course_id)
         syllabus_units = (
             syllabus["content"].get("units", []) if syllabus else []
         )
@@ -159,7 +163,7 @@ class QuestionPredictor:
         )
 
         question = self.database.create_question(
-            normalized_course_code, normalized_question
+            normalized_course_id, normalized_question
         )
         model_name = getattr(self.llm_client, "model_path", None)
         model_name = (
@@ -353,13 +357,14 @@ class QuestionPredictor:
         label = response.strip()
         return label if label in allowed_labels else "N/A"
 
-    def _reviewed_syllabus(self, course_code: str) -> dict[str, Any] | None:
+    def _reviewed_syllabus(self, course_id: str) -> dict[str, Any] | None:
         return next(
             (
                 version
-                for version in self.database.list_syllabus_versions(course_code)
+                for version in self.database.list_syllabus_versions(
+                    course_id=course_id
+                )
                 if version["review_status"] == "reviewed"
-                and version["course_id"] is not None
             ),
             None,
         )

@@ -117,6 +117,42 @@ def test_prediction_formats_only_the_two_required_lines_and_persists_metadata(
     database.close()
 
 
+def test_prediction_by_course_id_uses_latest_reviewed_syllabus(tmp_path) -> None:
+    database = make_database(tmp_path)
+    first_version = database.save_syllabus_version(
+        reviewed_syllabus(), tmp_path / "first.json"
+    )
+    updated_data = reviewed_syllabus()
+    updated_data["units"] = [
+        {
+            "unit_number": 1,
+            "unit_title": "Updated routing",
+            "topics": ["Routing updates"],
+        }
+    ]
+    latest_version = database.save_syllabus_version(
+        updated_data, tmp_path / "latest.json"
+    )
+    course = database.get_course("CS305")
+    assert course is not None
+    predictor = QuestionPredictor(
+        database,
+        FakeChatClient(["CO2", "BL3"]),
+        load_bloom_config(),
+    )
+
+    result = predictor.predict(
+        course["id"], "Calculate a shortest routing path."
+    )
+
+    assert result.syllabus_version_id == latest_version["id"]
+    assert result.syllabus_version_id != first_version["id"]
+    assert "Updated routing" in predictor.llm_client.messages[0][0][1]["content"]
+    history = database.list_question_history()
+    assert history[0]["course_id"] == course["id"]
+    database.close()
+
+
 @pytest.mark.parametrize(
     (
         "question_text",

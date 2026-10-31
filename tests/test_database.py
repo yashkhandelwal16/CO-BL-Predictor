@@ -76,6 +76,52 @@ def test_schema_migration_creates_expected_tables_and_indexes(tmp_path) -> None:
     database.close()
 
 
+def test_v2_migration_promotes_reviewed_syllabus_into_shared_course(tmp_path) -> None:
+    database_path = tmp_path / "legacy.sqlite3"
+    database = DatabaseManager(database_path)
+    database.close()
+    connection = sqlite3.connect(database_path)
+    connection.execute("ALTER TABLE courses DROP COLUMN archived_at")
+    connection.execute("PRAGMA user_version = 2")
+    content = {
+        "course_outcomes": [
+            {"id": "CO1", "description": "Explain legacy course concepts."}
+        ],
+        "units": [],
+    }
+    connection.execute(
+        "INSERT INTO syllabus_versions "
+        "(id, course_id, version_number, course_name, course_code, "
+        "source_pdf_path, source_sha256, parsed_json_path, content_json, "
+        "review_status, imported_at, reviewed_at) "
+        "VALUES (?, NULL, 1, ?, ?, ?, NULL, NULL, ?, 'reviewed', ?, ?)",
+        (
+            "legacy-syllabus",
+            "Legacy Course",
+            "CS440",
+            "legacy.pdf",
+            json.dumps(content),
+            "2024-01-01T00:00:00+00:00",
+            "2024-01-01T00:00:00+00:00",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    migrated = DatabaseManager(database_path)
+    course = migrated.get_course("CS440")
+    assert course is not None
+    assert course["course_name"] == "Legacy Course"
+    assert course["course_outcomes"] == {
+        "CO1": "Explain legacy course concepts."
+    }
+    versions = migrated.list_syllabus_versions(course_id=course["id"])
+    assert len(versions) == 1
+    assert versions[0]["id"] == "legacy-syllabus"
+    assert migrated.list_courses()[0]["id"] == course["id"]
+    migrated.close()
+
+
 def test_v1_migration_preserves_data_and_accepts_co5(tmp_path) -> None:
     database_path = tmp_path / "legacy.sqlite3"
     connection = sqlite3.connect(database_path)
@@ -286,6 +332,71 @@ def test_reviewed_syllabus_version_and_outcomes_survive_restart(tmp_path) -> Non
     assert versions[0]["parsed_json_path"] == str(parsed_json)
     assert versions[0]["content"]["units"][0]["topics"] == ["Routing"]
     restarted.close()
+
+
+def test_reviewed_syllabus_update_reuses_course_and_links_versions(tmp_path) -> None:
+    database = DatabaseManager(tmp_path / "application.sqlite3")
+    manager = CourseManager(database)
+    first_pdf = tmp_path / "first.pdf"
+    first_pdf.write_bytes(b"first")
+    first_course = manager.save_reviewed_syllabus(
+        reviewed_syllabus(first_pdf),
+        tmp_path / "first.json",
+    )
+    first_record = database.get_course("CS305")
+    assert first_record is not None
+
+    second_pdf = tmp_path / "second.pdf"
+    second_pdf.write_bytes(b"second")
+    updated_data = reviewed_syllabus(second_pdf, "Computer Networks Updated")
+    updated_data["course_outcomes"][0]["description"] = "Updated routing outcome"
+    updated_course = manager.save_reviewed_syllabus(
+        updated_data,
+        tmp_path / "second.json",
+    )
+
+    course = database.get_course_by_id(first_record["id"])
+    versions = database.list_syllabus_versions(course_id=first_record["id"])
+    assert first_course.code == updated_course.code == "CS305"
+    assert course is not None
+    assert course["id"] == first_record["id"]
+    assert course["course_name"] == "Computer Networks Updated"
+    assert course["course_outcomes"]["CO1"] == "Updated routing outcome"
+    assert len(versions) == 2
+    assert versions[0]["version_number"] == 2
+    assert all(version["course_id"] == first_record["id"] for version in versions)
+    database.close()
+
+
+def test_archiving_preserves_history_and_reimport_restores_same_course() -> None:
+    database = DatabaseManager()
+    manager = CourseManager(database)
+    manager.add_course("Computer Networks", "CS305", outcome_descriptions())
+    course = database.get_course("CS305")
+    assert course is not None
+    question = database.create_question(course["id"], "Explain routing.")
+    prediction = database.create_prediction(question["id"], "CO1", "BL1")
+    database.save_approved_labels(
+        question["id"], "CO1", "BL1", prediction_id=prediction["id"]
+    )
+
+    assert manager.delete_course("CS305")
+    assert database.get_course("CS305") is None
+    assert database.list_courses() == []
+    history = database.list_question_history()
+    assert len(history) == 1
+    assert history[0]["course_id"] == course["id"]
+    assert history[0]["approved_co"] == "CO1"
+
+    restored = manager.add_course(
+        "Computer Networks", "CS305", outcome_descriptions("Restored")
+    )
+    restored_record = database.get_course("CS305")
+    assert restored.code == "CS305"
+    assert restored_record is not None
+    assert restored_record["id"] == course["id"]
+    assert len(database.list_question_history()) == 1
+    database.close()
 
 
 def test_partial_or_unlinked_syllabus_is_saved_without_inventing_a_course(

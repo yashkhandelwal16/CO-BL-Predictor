@@ -45,6 +45,7 @@ def test_window_has_all_phase_one_pages() -> None:
         "Predict",
         "History",
     }
+    assert window.delete_course_button.text() == "Delete"
     assert window.minimumWidth() >= 900
     assert window.minimumHeight() >= 600
 
@@ -74,7 +75,9 @@ def test_prediction_requires_a_course_and_question() -> None:
     window.course_manager.add_course("Computer Networks", "CS305", outcomes)
     window.refresh_course_list()
     assert window.course_selector.count() == 1
-    assert window.course_selector.currentData(Qt.ItemDataRole.UserRole) == "CS305"
+    course = window.database.get_course("CS305")
+    assert course is not None
+    assert window.course_selector.currentData(Qt.ItemDataRole.UserRole) == course["id"]
     assert not window.predict_button.isEnabled()
 
     window.question_input.setPlainText("Explain network routing.")
@@ -90,9 +93,11 @@ def test_invalid_question_message_is_shown_in_prediction_status() -> None:
     }
     window.course_manager.add_course("Computer Networks", "CS305", outcomes)
     window.refresh_course_list()
+    course = window.database.get_course("CS305")
+    assert course is not None
     worker = PredictionWorker(
         window.database,
-        "CS305",
+        course["id"],
         "Hello, how are you?",
         window.bloom_config,
     )
@@ -290,6 +295,10 @@ def test_persistent_window_restores_courses_syllabi_and_question_history(
     restored_course = restarted_window.course_manager.get_course("CS305")
     assert restored_course is not None
     assert restored_course.course_outcomes == outcomes
+    assert (
+        restarted_window.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        == restarted_window.database.get_course("CS305")["id"]
+    )
     assert restarted_window.syllabus_versions_list.count() == 1
     assert restarted_window.history_table.rowCount() == 1
     assert restarted_window.history_table.item(0, 3).text() == "CO3 / BL3"
@@ -565,7 +574,8 @@ def test_syllabus_import_reviews_and_saves_structured_data(
         return saved_path
 
     monkeypatch.setattr(main_window_module, "save_syllabus_json", save_review)
-    window = MainWindow()
+    database_path = tmp_path / "imported-course.sqlite3"
+    window = MainWindow(database_path)
 
     window._import_syllabus()
 
@@ -582,6 +592,29 @@ def test_syllabus_import_reviews_and_saves_structured_data(
     assert window.database.list_syllabus_versions("CS301")[0][
         "review_status"
     ] == "reviewed"
+    stored_course = window.database.get_course("CS301")
+    assert stored_course is not None
+    assert window.course_selector.currentData(Qt.ItemDataRole.UserRole) == (
+        stored_course["id"]
+    )
+    assert "Reviewed syllabus: course.pdf" in (
+        window.prediction_course_details.text()
+    )
+    assert "CO1: Explain network routing." in (
+        window.prediction_course_details.text()
+    )
+    saved_course_id = stored_course["id"]
+    window.close_storage()
+
+    restarted_window = MainWindow(database_path)
+    restored_course = restarted_window.database.get_course("CS301")
+    assert restored_course is not None
+    assert restored_course["id"] == saved_course_id
+    assert (
+        restarted_window.course_selector.currentData(Qt.ItemDataRole.UserRole)
+        == saved_course_id
+    )
+    restarted_window.close_storage()
 
 
 def test_course_pdf_selection_reviews_and_populates_co5(

@@ -27,13 +27,13 @@ class PredictionWorker(QThread):
     def __init__(
         self,
         database: DatabaseManager,
-        course_code: str,
+        course_id: str,
         question_text: str,
         bloom_config: dict[str, Any],
     ) -> None:
         super().__init__()
         self._database = database
-        self._course_code = course_code
+        self._course_id = course_id
         self._question_text = question_text
         self._bloom_config = bloom_config
         self._cancellation_event = Event()
@@ -49,7 +49,7 @@ class PredictionWorker(QThread):
                 self._bloom_config,
             )
             result = predictor.predict(
-                self._course_code,
+                self._course_id,
                 self._question_text,
                 cancellation_event=self._cancellation_event,
             )
