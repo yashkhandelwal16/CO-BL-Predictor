@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QDialog,
     QFrame,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QComboBox,
+    QScrollArea,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -41,6 +43,12 @@ from src.ui.course_dialog import CourseDialog
 from src.ui.label_review_dialog import LabelReviewDialog
 from src.ui.selectable_text import enable_text_selection
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
+from src.ui.theme import (
+    DecorativeWorkspace,
+    add_card_shadow,
+    make_navigation_icon,
+    workspace_stylesheet,
+)
 
 
 class MainWindow(QMainWindow):
@@ -61,6 +69,7 @@ class MainWindow(QMainWindow):
 
         self.navigation_buttons: dict[str, QPushButton] = {}
         self.pages: dict[str, QWidget] = {}
+        self._page_descriptions: list[QLabel] = []
         self.database = DatabaseManager(database_path)
         self.course_manager = CourseManager(self.database)
         self.bloom_config = load_bloom_config()
@@ -73,16 +82,18 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(0)
         root_layout.addWidget(self._build_sidebar())
 
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(30, 24, 30, 22)
-        content_layout.setSpacing(18)
+        self.workspace = DecorativeWorkspace()
+        content_layout = QVBoxLayout(self.workspace)
+        content_layout.setContentsMargins(32, 26, 32, 24)
+        content_layout.setSpacing(20)
         content_layout.addWidget(self._build_header())
         content_layout.addWidget(self.page_stack, 1)
-        root_layout.addWidget(content, 1)
+        root_layout.addWidget(self.workspace, 1)
         self.setCentralWidget(central_widget)
 
         self._build_pages()
+        self._update_page_description_widths()
+        self._resize_history_columns()
         enable_text_selection(self)
         self.refresh_prediction_courses()
         self.statusBar().showMessage("Welcome. Add a course to get started.")
@@ -109,6 +120,8 @@ class MainWindow(QMainWindow):
         for label, page_name in self.PAGES:
             button = QPushButton(label)
             button.setObjectName("navigationButton")
+            button.setIcon(make_navigation_icon(page_name))
+            button.setIconSize(QSize(22, 22))
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(
@@ -613,8 +626,13 @@ class MainWindow(QMainWindow):
         )
         form_card = self._card()
         form_layout = QVBoxLayout(form_card)
-        form_layout.setContentsMargins(22, 20, 22, 20)
-        form_layout.setSpacing(12)
+        form_layout.setContentsMargins(16, 16, 16, 16)
+        form_layout.setSpacing(10)
+
+        input_content = QWidget()
+        input_layout = QVBoxLayout(input_content)
+        input_layout.setContentsMargins(0, 0, 0, 0)
+        input_layout.setSpacing(8)
 
         course_label = QLabel("Course")
         course_label.setObjectName("fieldLabel")
@@ -624,11 +642,14 @@ class MainWindow(QMainWindow):
         self.course_selector.currentIndexChanged.connect(
             self._prediction_course_changed
         )
-        self.prediction_course_details = QLabel(
+        self.prediction_course_details = QTextEdit()
+        self.prediction_course_details.setReadOnly(True)
+        self.prediction_course_details.setMinimumHeight(72)
+        self.prediction_course_details.setMaximumHeight(96)
+        self.prediction_course_details.setObjectName("courseDetails")
+        self.prediction_course_details.setText(
             "Select a course to review its saved outcomes and syllabus."
         )
-        self.prediction_course_details.setObjectName("noticeText")
-        self.prediction_course_details.setWordWrap(True)
 
         question_label = QLabel("Examination question")
         question_label.setObjectName("fieldLabel")
@@ -637,6 +658,7 @@ class MainWindow(QMainWindow):
             "Enter an examination question to receive suggested labels."
         )
         self.question_input.setMinimumHeight(150)
+        self.question_input.setMaximumHeight(210)
         self.question_input.textChanged.connect(self._update_prediction_button)
 
         self.predict_button = QPushButton("Predict CO and BL")
@@ -657,16 +679,27 @@ class MainWindow(QMainWindow):
         )
         self.prediction_result.setWordWrap(True)
 
-        form_layout.addWidget(course_label)
-        form_layout.addWidget(self.course_selector)
-        form_layout.addWidget(self.prediction_course_details)
-        form_layout.addWidget(question_label)
-        form_layout.addWidget(self.question_input)
+        input_layout.addWidget(course_label)
+        input_layout.addWidget(self.course_selector)
+        input_layout.addWidget(self.prediction_course_details)
+        input_layout.addWidget(question_label)
+        input_layout.addWidget(self.question_input)
+
+        input_scroll_area = QScrollArea()
+        input_scroll_area.setObjectName("predictionInputScrollArea")
+        input_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        input_scroll_area.setWidgetResizable(True)
+        input_scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        input_scroll_area.setWidget(input_content)
+        self.prediction_scroll_area = input_scroll_area
+
+        form_layout.addWidget(input_scroll_area, 1)
         form_layout.addWidget(self.predict_button, 0, Qt.AlignmentFlag.AlignLeft)
         form_layout.addWidget(self.prediction_result)
         form_layout.addWidget(self.prediction_status)
-        layout.addWidget(form_card)
-        layout.addStretch(1)
+        layout.addWidget(form_card, 1)
         return page
 
     def _start_prediction(self) -> None:
@@ -741,7 +774,7 @@ class MainWindow(QMainWindow):
         self.history_table = QTableWidget()
         self.history_table.setColumnCount(6)
         self.history_table.setHorizontalHeaderLabels(
-            ["Course", "Question", "Suggested CO / BL", "Approved CO / BL", "Review", "Date"]
+            ["Course", "Question", "Suggested", "Approved", "Review", "Date"]
         )
         self.history_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
@@ -749,25 +782,20 @@ class MainWindow(QMainWindow):
         self.history_table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
         )
+        self.history_table.setAlternatingRowColors(True)
         self.history_table.itemSelectionChanged.connect(
             self._update_review_button
         )
         history_header = self.history_table.horizontalHeader()
-        for column, width in (
-            (0, 170),
-            (2, 135),
-            (3, 135),
-            (4, 110),
-            (5, 185),
-        ):
+        for column in (0, 2, 3, 4, 5):
             history_header.setSectionResizeMode(
                 column, QHeaderView.ResizeMode.Interactive
             )
-            self.history_table.setColumnWidth(column, width)
         history_header.setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
         )
         layout.addWidget(self.history_table, 1)
+        self._resize_history_columns()
         self.history_empty_label = QLabel("No questions have been saved yet.")
         self.history_empty_label.setObjectName("mutedText")
         layout.addWidget(self.history_empty_label)
@@ -914,14 +942,44 @@ class MainWindow(QMainWindow):
         description = QLabel(subtitle)
         description.setObjectName("mutedText")
         description.setWordWrap(True)
+        self._page_descriptions.append(description)
         layout.addWidget(title)
         layout.addWidget(description)
         return page, layout
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._update_page_description_widths()
+        self._resize_history_columns()
+
+    def _update_page_description_widths(self) -> None:
+        if not self._page_descriptions:
+            return
+        workspace_width = max(1, self.width() - 224 - 64)
+        description_width = min(680, int(workspace_width * 0.58))
+        for description in self._page_descriptions:
+            description.setMaximumWidth(description_width)
+
+    def _resize_history_columns(self) -> None:
+        if not hasattr(self, "history_table"):
+            return
+        available_width = self.history_table.viewport().width()
+        for column, share in (
+            (0, 0.17),
+            (2, 0.18),
+            (3, 0.18),
+            (4, 0.12),
+            (5, 0.18),
+        ):
+            self.history_table.setColumnWidth(
+                column, max(72, int(available_width * share))
+            )
 
     @staticmethod
     def _card() -> QFrame:
         card = QFrame()
         card.setObjectName("card")
+        add_card_shadow(card)
         return card
 
     def _empty_state(self, title_text: str, body_text: str) -> QFrame:
@@ -949,148 +1007,4 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _stylesheet() -> str:
-        return """
-            QWidget {
-                background: #f8f7fc;
-                color: #292536;
-                font-family: "Segoe UI";
-                font-size: 14px;
-            }
-            QLabel {
-                background: transparent;
-            }
-            QWidget#sidebar {
-                background: #ffffff;
-                border-right: 1px solid #e9e5f0;
-            }
-            QLabel#brand {
-                color: #000000;
-                font-size: 24px;
-                font-weight: 700;
-            }
-            QLabel#sidebarCaption {
-                color: #817b8d;
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 1px;
-            }
-            QPushButton#navigationButton {
-                background: transparent;
-                border: 0;
-                border-radius: 8px;
-                color: #625c6e;
-                min-height: 42px;
-                padding: 0 12px;
-                text-align: left;
-            }
-            QPushButton#navigationButton:hover {
-                background: #f5f3ff;
-                color: #7C3AED;
-            }
-            QPushButton#navigationButton:checked {
-                background: #7C3AED;
-                color: #ffffff;
-                font-weight: 700;
-            }
-            QPushButton#navigationButton:checked:hover {
-                background: #7C3AED;
-                color: #ffffff;
-                font-weight: 700;
-            }
-            QLabel#pageTitle {
-                color: #292536;
-                font-size: 25px;
-                font-weight: 700;
-            }
-            QLabel#sectionTitle {
-                color: #292536;
-                font-size: 20px;
-                font-weight: 700;
-            }
-            QFrame#card {
-                background: #ffffff;
-                border: 1px solid #e9e5f0;
-                border-radius: 12px;
-            }
-            QLabel#cardTitle {
-                color: #393346;
-                font-size: 16px;
-                font-weight: 700;
-            }
-            QLabel#bodyText {
-                color: #625c6e;
-                font-size: 14px;
-            }
-            QLabel#mutedText {
-                color: #817b8d;
-                font-size: 13px;
-            }
-            QLabel#fieldLabel {
-                color: #494355;
-                font-weight: 600;
-            }
-            QLabel#noticeText {
-                background: #f5f3ff;
-                border-radius: 8px;
-                color: #5b21b6;
-                padding: 10px;
-            }
-            QPushButton#primaryButton, QPushButton#secondaryButton {
-                border-radius: 8px;
-                font-weight: 600;
-                min-height: 38px;
-                padding: 0 16px;
-            }
-            QPushButton#primaryButton {
-                background: #7C3AED;
-                border: 1px solid #7C3AED;
-                color: #ffffff;
-            }
-            QPushButton#primaryButton:hover:enabled {
-                background: #6d28d9;
-            }
-            QPushButton#primaryButton:disabled {
-                background: #c4b5fd;
-                border-color: #c4b5fd;
-                color: #ffffff;
-            }
-            QPushButton#secondaryButton {
-                background: #ffffff;
-                border: 1px solid #d8d1e5;
-                color: #6d28d9;
-            }
-            QPushButton#secondaryButton:hover {
-                background: #f5f3ff;
-            }
-            QComboBox, QLineEdit, QTextEdit {
-                background: #ffffff;
-                border: 1px solid #d8d1e5;
-                border-radius: 7px;
-                padding: 8px;
-                selection-background-color: #7C3AED;
-                selection-color: #ffffff;
-            }
-            QComboBox:disabled, QLineEdit:disabled, QTextEdit:disabled {
-                color: #817b8d;
-                background: #f4f2f7;
-            }
-            QListWidget {
-                background: #ffffff;
-                border: 1px solid #e9e5f0;
-                border-radius: 8px;
-                padding: 4px;
-            }
-            QListWidget::item {
-                border-bottom: 1px solid #eeeaf5;
-                padding: 10px 12px;
-            }
-            QListWidget::item:selected {
-                background: #ede9fe;
-                color: #5b21b6;
-            }
-            QStatusBar {
-                background: #ffffff;
-                border-top: 1px solid #e9e5f0;
-                color: #625c6e;
-            }
-        """
+        return workspace_stylesheet()

@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMessageBox,
     QTableWidget,
+    QScrollBar,
     QWidget,
 )
 
@@ -15,6 +16,9 @@ class _SelectableTextFilter(QObject):
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Show and isinstance(watched, QWidget):
             _set_selectable_labels(watched)
+            if isinstance(watched, QScrollBar):
+                watched.setTracking(True)
+                watched.setSingleStep(24)
             if isinstance(watched, QMessageBox):
                 watched.setTextInteractionFlags(
                     Qt.TextInteractionFlag.TextSelectableByMouse

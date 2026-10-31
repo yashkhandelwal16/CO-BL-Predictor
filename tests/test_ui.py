@@ -26,6 +26,7 @@ from src.ui.course_dialog import CourseDialog
 from src.ui.label_review_dialog import LabelReviewDialog
 from src.ui.main_window import MainWindow
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
+from src.ui.theme import COLORS, DecorativeWorkspace
 import src.ui.main_window as main_window_module
 
 
@@ -143,6 +144,29 @@ def test_prediction_requires_a_course_and_question() -> None:
     assert window.predict_button.isEnabled()
 
 
+def test_predict_button_stays_visible_below_inputs_at_minimum_window_size() -> None:
+    application = get_application()
+    window = MainWindow()
+    window.show()
+    window.resize(980, 640)
+    window.navigate("Predict")
+    application.processEvents()
+
+    input_scroll_area = window.prediction_scroll_area
+    scrollbar = input_scroll_area.verticalScrollBar()
+    assert window.predict_button.isVisible()
+    assert (
+        window.predict_button.mapTo(window.pages["Predict"], window.predict_button.rect().topLeft()).y()
+        > input_scroll_area.mapTo(
+            window.pages["Predict"], input_scroll_area.rect().bottomLeft()
+        ).y()
+    )
+    assert scrollbar.isVisible()
+    assert scrollbar.hasTracking()
+    assert scrollbar.singleStep() == 24
+    window.close_storage()
+
+
 def test_invalid_question_message_is_shown_in_prediction_status() -> None:
     get_application()
     window = MainWindow()
@@ -231,37 +255,77 @@ def test_course_syllabus_picker_has_clear_bordered_upload_area() -> None:
     assert dialog.syllabus_picker.layout().spacing() >= 12
 
 
-def test_main_window_uses_white_and_violet_theme() -> None:
+def test_main_window_uses_lavender_and_royal_purple_theme() -> None:
     get_application()
     window = MainWindow()
     stylesheet = window.styleSheet()
 
-    assert "background: #ffffff" in stylesheet
+    assert "background: #FFFFFF" in stylesheet
+    assert "background: #F6F2FF" in stylesheet
+    assert "background: #F3EDFF" in stylesheet
     assert "#7C3AED" in stylesheet
-    assert "background: #f5f3ff" in stylesheet
-    assert "QComboBox, QLineEdit, QTextEdit" in stylesheet
+    assert "background: #F0E7FF" in stylesheet
+    assert "QComboBox, QLineEdit, QTextEdit, QPlainTextEdit" in stylesheet
     assert "QLabel#brand" in stylesheet
-    assert "color: #000000" in stylesheet
+    assert "color: #172554" in stylesheet
     assert "QPushButton#navigationButton:checked" in stylesheet
-    assert "color: #ffffff" in stylesheet
+    assert "color: #FFFFFF" in stylesheet
 
     active_navigation = window.navigation_buttons["Dashboard"]
     assert active_navigation.isChecked()
+    assert all(button.icon().isNull() is False for button in window.navigation_buttons.values())
+    assert COLORS == {
+        "background": "#F6F2FF",
+        "surface": "#FFFFFF",
+        "primary": "#7C3AED",
+        "primary_dark": "#6D28D9",
+        "lavender": "#EDE5FF",
+        "pale_lavender": "#F3EDFF",
+        "heading": "#172554",
+        "body": "#64748B",
+        "border": "#E7DFF3",
+        "hover": "#F0E7FF",
+    }
+
+
+def test_shared_workspace_background_resizes_across_all_pages() -> None:
+    get_application()
+    window = MainWindow()
+    assert isinstance(window.workspace, DecorativeWorkspace)
+    window.show()
+    QApplication.instance().processEvents()
+    window.resize(980, 640)
+    QApplication.instance().processEvents()
+    for page_name, _ in window.PAGES:
+        window.navigate(page_name)
+        assert window.workspace.size().width() > 0
+        assert window.navigation_buttons[page_name].isChecked()
+    small_size = window.workspace.size()
+
+    window.resize(1440, 900)
+    QApplication.instance().processEvents()
+
+    assert window.workspace.size().width() > small_size.width()
+    assert window.workspace.size().height() > small_size.height()
+    assert window.page_title.text() == "History"
 
 
 def test_history_table_uses_available_page_space_and_readable_columns() -> None:
-    get_application()
+    application = get_application()
     window = MainWindow()
+    window.show()
+    window.resize(980, 640)
+    application.processEvents()
     history_layout = window.pages["History"].layout()
     header = window.history_table.horizontalHeader()
 
     assert history_layout.stretch(history_layout.indexOf(window.history_table)) == 1
     assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
-    assert window.history_table.columnWidth(0) == 170
-    assert window.history_table.columnWidth(2) == 135
-    assert window.history_table.columnWidth(3) == 135
-    assert window.history_table.columnWidth(4) == 110
-    assert window.history_table.columnWidth(5) == 185
+    assert all(
+        window.history_table.columnWidth(column) >= 72
+        for column in (0, 2, 3, 4, 5)
+    )
+    assert window.history_table.horizontalScrollBar().maximum() == 0
 
 
 def test_syllabus_page_has_spaced_content_and_readable_version_list() -> None:
@@ -657,10 +721,10 @@ def test_syllabus_import_reviews_and_saves_structured_data(
         stored_course["id"]
     )
     assert "Reviewed syllabus: course.pdf" in (
-        window.prediction_course_details.text()
+        window.prediction_course_details.toPlainText()
     )
     assert "CO1: Explain network routing." in (
-        window.prediction_course_details.text()
+        window.prediction_course_details.toPlainText()
     )
     saved_course_id = stored_course["id"]
     window.close_storage()

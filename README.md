@@ -78,7 +78,7 @@ data/
   exports/       # generated/local data; not committed
 models/          # local GGUF assets; not committed
 src/
-  ui/
+  ui/             # PySide6 screens and the shared lavender workspace theme
   courses/
   syllabus/
   prediction/

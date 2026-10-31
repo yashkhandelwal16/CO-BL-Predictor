@@ -21,6 +21,7 @@ from src.courses.course_manager import COURSE_OUTCOME_IDS, Course
 from src.syllabus.pdf_extractor import PDFExtractionError, extract_syllabus
 from src.ui.selectable_text import enable_text_selection
 from src.ui.syllabus_review_dialog import SyllabusReviewDialog
+from src.ui.theme import COLORS
 
 
 class CourseDialog(QDialog):
@@ -29,32 +30,32 @@ class CourseDialog(QDialog):
         self.setWindowTitle("Edit course" if course else "Create course")
         self.setMinimumWidth(560)
         self.setStyleSheet(
-            """
-            QFrame#syllabusPicker {
-                background-color: #faf9ff;
-                border: 1px solid #7C3AED;
+            f"""
+            QFrame#syllabusPicker {{
+                background-color: {COLORS["pale_lavender"]};
+                border: 1px solid {COLORS["primary"]};
                 border-radius: 9px;
-            }
-            QLabel#syllabusFileLabel {
+            }}
+            QLabel#syllabusFileLabel {{
                 background: transparent;
                 border: none;
-                color: #625c6e;
+                color: {COLORS["body"]};
                 padding: 2px 4px;
-            }
-            QPushButton#chooseSyllabusPdfButton {
-                background: #ffffff;
-                border: 1px solid #7C3AED;
+            }}
+            QPushButton#chooseSyllabusPdfButton {{
+                background: {COLORS["surface"]};
+                border: 1px solid {COLORS["primary"]};
                 border-radius: 7px;
-                color: #6d28d9;
+                color: {COLORS["primary_dark"]};
                 font-weight: 600;
                 padding: 0 16px;
-            }
-            QPushButton#chooseSyllabusPdfButton:hover {
-                background: #f5f3ff;
-            }
-            QPushButton#chooseSyllabusPdfButton:pressed {
-                background: #ede9fe;
-            }
+            }}
+            QPushButton#chooseSyllabusPdfButton:hover {{
+                background: {COLORS["hover"]};
+            }}
+            QPushButton#chooseSyllabusPdfButton:pressed {{
+                background: {COLORS["lavender"]};
+            }}
             """
         )
         self._syllabus_pdf = course.syllabus_pdf if course else None
