@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTableWidgetItem,
     QTextEdit,
+    QWidget,
 )
 
 from src.courses.course_manager import COURSE_OUTCOME_IDS
@@ -199,7 +200,12 @@ def test_prediction_result_displays_only_the_required_two_lines() -> None:
 
     window._prediction_completed("CO level - CO2\nBL level - BL3")
 
-    assert window.prediction_result.text() == "CO level - CO2\nBL level - BL3"
+    assert window.prediction_result.text() == (
+        "<strong>CO level - CO2</strong><br><strong>BL level - BL3</strong>"
+    )
+    assert window.prediction_result.textFormat() == Qt.TextFormat.RichText
+    assert "QLabel#predictionResult" in window.styleSheet()
+    assert "background: #F3EDFF" in window.styleSheet()
     assert window.prediction_status.text() == "Suggestion ready for faculty review."
 
 
@@ -267,6 +273,8 @@ def test_main_window_uses_lavender_and_royal_purple_theme() -> None:
     assert "background: #F0E7FF" in stylesheet
     assert "QComboBox, QLineEdit, QTextEdit, QPlainTextEdit" in stylesheet
     assert "QLabel#brand" in stylesheet
+    assert "QWidget#brandPanel" in stylesheet
+    assert window.findChild(QWidget, "brandPanel") is not None
     assert "color: #172554" in stylesheet
     assert "QPushButton#navigationButton:checked" in stylesheet
     assert "color: #FFFFFF" in stylesheet

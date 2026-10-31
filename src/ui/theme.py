@@ -41,6 +41,11 @@ def workspace_stylesheet() -> str:
             background: {colors["surface"]};
             border-right: 1px solid {colors["border"]};
         }}
+        QWidget#brandPanel {{
+            background: {colors["pale_lavender"]};
+            border: 1px solid {colors["border"]};
+            border-radius: 14px;
+        }}
         QDialog {{
             background: {colors["background"]};
         }}
@@ -113,6 +118,14 @@ def workspace_stylesheet() -> str:
             border-radius: 9px;
             color: {colors["primary_dark"]};
             padding: 10px;
+        }}
+        QLabel#predictionResult {{
+            background: {colors["pale_lavender"]};
+            border: 1px solid {colors["lavender"]};
+            border-radius: 10px;
+            color: {colors["heading"]};
+            font-size: 15px;
+            padding: 12px 14px;
         }}
         QPushButton#primaryButton, QPushButton#secondaryButton {{
             border-radius: 9px;

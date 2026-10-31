@@ -1,3 +1,4 @@
+from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -108,13 +109,19 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 24, 18, 20)
         layout.setSpacing(8)
 
+        brand_panel = QWidget()
+        brand_panel.setObjectName("brandPanel")
+        brand_layout = QVBoxLayout(brand_panel)
+        brand_layout.setContentsMargins(12, 10, 12, 10)
+        brand_layout.setSpacing(4)
+
         brand = QLabel("CO & BL\nPredictor")
         brand.setObjectName("brand")
-        layout.addWidget(brand)
-
         caption = QLabel("ACADEMIC MAPPING WORKSPACE")
         caption.setObjectName("sidebarCaption")
-        layout.addWidget(caption)
+        brand_layout.addWidget(brand)
+        brand_layout.addWidget(caption)
+        layout.addWidget(brand_panel)
         layout.addSpacing(24)
 
         for label, page_name in self.PAGES:
@@ -674,6 +681,7 @@ class MainWindow(QMainWindow):
 
         self.prediction_result = QLabel("")
         self.prediction_result.setObjectName("predictionResult")
+        self.prediction_result.setTextFormat(Qt.TextFormat.RichText)
         self.prediction_result.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
@@ -725,7 +733,11 @@ class MainWindow(QMainWindow):
         worker.start()
 
     def _prediction_completed(self, formatted_result: str) -> None:
-        self.prediction_result.setText(formatted_result)
+        bold_lines = (
+            f"<strong>{escape(line)}</strong>"
+            for line in formatted_result.splitlines()
+        )
+        self.prediction_result.setText("<br>".join(bold_lines))
         self.prediction_status.setText(
             "Suggestion ready for faculty review."
         )
