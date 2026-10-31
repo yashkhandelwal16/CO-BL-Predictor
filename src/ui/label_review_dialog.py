@@ -52,7 +52,9 @@ class LabelReviewDialog(QDialog):
             ]
         )
         self.bl_selector = QComboBox()
-        self.bl_selector.addItems(["BL0", "BL1", "BL2", "BL3", "BL4", "N/A"])
+        self.bl_selector.addItems(
+            ["BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"]
+        )
         self.reviewer_input = QLineEdit()
         self.reviewer_input.setPlaceholderText("Optional")
         self.review_note_input = QTextEdit()

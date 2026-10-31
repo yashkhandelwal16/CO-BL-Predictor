@@ -1,3 +1,4 @@
+import json
 import importlib.util
 import re
 import socket
@@ -22,8 +23,17 @@ MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / (
 class FakeChatClient:
     model_path = Path("local-test-model.gguf")
 
-    def __init__(self, responses):
-        self.responses = list(responses)
+    def __init__(self, responses, *, encode_labels=True):
+        labels = {
+            "CO1", "CO2", "CO3", "CO4", "CO5",
+            "BL0", "BL1", "BL2", "BL3", "BL4", "BL5",
+        }
+        self.responses = [
+            json.dumps({"label": response})
+            if encode_labels and response in labels
+            else response
+            for response in responses
+        ]
         self.messages = []
 
     def chat(self, messages, **options):
@@ -85,15 +95,17 @@ def test_prediction_formats_only_the_two_required_lines_and_persists_metadata(
 
     result = predictor.predict("cs305", "Calculate a shortest routing path.")
 
-    assert result.format_output() == "CO level-CO2\nBL level - BL3"
+    assert result.format_output() == "CO level - CO2\nBL level - BL3"
     assert result.status == "predicted"
     assert len(client.messages) == 2
     assert "CO1:" in client.messages[0][0][1]["content"]
     assert "CO4:" in client.messages[0][0][1]["content"]
+    assert "TF-IDF similarity scores" in client.messages[0][0][1]["content"]
     assert "Unit 1: Routing" in client.messages[0][0][1]["content"]
     assert "Unit 2: Data link layer" not in client.messages[0][0][1]["content"]
     assert "Never answer" in client.messages[0][0][0]["content"]
     assert "BL1 (Remember)" in client.messages[1][0][1]["content"]
+    assert "BL5 (Evaluate)" in client.messages[1][0][1]["content"]
     assert "Keyword matches are evidence only" in client.messages[1][0][0]["content"]
 
     history = database.list_question_history()
@@ -184,7 +196,7 @@ def test_uncertain_and_malformed_labels_fall_back_independently_to_na(
     result = predictor.predict("CS305", question_text)
 
     assert result.format_output() == (
-        f"CO level-{expected_co}\nBL level - {expected_bl}"
+        f"CO level - {expected_co}\nBL level - {expected_bl}"
     )
     assert result.status == (
         "insufficient_context"
@@ -410,7 +422,7 @@ def test_long_unicode_question_is_preserved_and_formatted(tmp_path):
 
     result = predictor.predict("CS305", question_text)
 
-    assert result.format_output() == "CO level-CO2\nBL level - BL3"
+    assert result.format_output() == "CO level - CO2\nBL level - BL3"
     assert database.list_question_history()[0]["question_text"] == question_text.strip()
     assert question_text.strip() in client.messages[0][0][1]["content"]
     database.close()
@@ -495,6 +507,57 @@ def test_empty_model_response_is_rejected_as_uncertain_label(tmp_path):
     database.close()
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        "CO1",
+        "not json",
+        '{"label":"CO1","reason":"made up"}',
+        '{"label":"CO9"}',
+        '{"label":1}',
+        "[]",
+    ],
+)
+def test_unstructured_or_fabricated_model_labels_are_rejected(
+    tmp_path, response
+):
+    database = make_database(tmp_path)
+    client = FakeChatClient(
+        [response, '{"label":"BL5"}'],
+        encode_labels=False,
+    )
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("CS305", "Evaluate network routing security.")
+
+    assert result.co_label == "N/A"
+    assert result.bl_label == "BL5"
+    assert result.format_output() == "CO level - N/A\nBL level - BL5"
+    database.close()
+
+
+def test_prediction_persists_co5_and_bl5_labels(tmp_path):
+    database = DatabaseManager(tmp_path / "co5-bl5.sqlite3")
+    CourseManager(database).add_course(
+        "Computer Networks",
+        "CS305",
+        {
+            "CO1": "Explain network routing models.",
+            "CO5": "Evaluate network security using evidence.",
+        },
+    )
+    client = FakeChatClient(['{"label":"CO5"}', '{"label":"BL5"}'])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("CS305", "Evaluate network security using evidence.")
+
+    assert result.format_output() == "CO level - CO5\nBL level - BL5"
+    history = database.list_question_history()
+    assert history[0]["predicted_co"] == "CO5"
+    assert history[0]["predicted_bl"] == "BL5"
+    database.close()
+
+
 @pytest.mark.skipif(
     not MODEL_PATH.is_file() or importlib.util.find_spec("llama_cpp") is None,
     reason="Qwen GGUF and llama-cpp-python are both required",
@@ -522,11 +585,11 @@ def test_real_model_prediction_has_exactly_two_valid_output_lines(
 
     assert len(output_lines) == 2
     assert output_lines[0] in {
-        "CO level-CO1",
-        "CO level-CO2",
-        "CO level-CO3",
-        "CO level-CO4",
-        "CO level-N/A",
+        "CO level - CO1",
+        "CO level - CO2",
+        "CO level - CO3",
+        "CO level - CO4",
+        "CO level - N/A",
     }
     assert output_lines[1] in {
         "BL level - BL0",
@@ -534,6 +597,7 @@ def test_real_model_prediction_has_exactly_two_valid_output_lines(
         "BL level - BL2",
         "BL level - BL3",
         "BL level - BL4",
+        "BL level - BL5",
         "BL level - N/A",
     }
     history = database.list_question_history()

@@ -40,9 +40,9 @@ visible; do not claim compatibility without testing.
 - Courses may store any available subset of CO1–CO5. Never invent outcomes;
   preserve unsupported outcome IDs in the reviewed syllabus archive and flag
   them as unavailable for prediction.
-- BL0–BL4 are custom project labels, not the standard six-level revised
-  Bloom taxonomy. Require the institution's definitions before treating them
-  as official.
+- BL0–BL5 are custom project labels, not the complete standard six-level
+  revised Bloom taxonomy. BL5 currently means Evaluate, following BL4 Analyze.
+  Keep the definitions marked unverified until the institution approves them.
 - Starter rules in `config/bloom_levels.json` are illustrative and must remain
   marked `draft_unverified` until institution-approved definitions are
   supplied. Keep the stable reset copy in `config/bloom_levels.default.json`.
@@ -51,13 +51,13 @@ visible; do not claim compatibility without testing.
   configuration service.
 - Keyword matching reports evidence only. It must not choose BL0, N/A, or a
   predicted level automatically.
-- BL0 means unclassifiable under configured BL1–BL4 despite adequate question
+- BL0 means unclassifiable under configured BL1–BL5 despite adequate question
   and context. N/A means evidence/context is insufficient to assign that
   field. Keep CO and BL uncertainty independent.
 - The prediction result must contain exactly two lines:
 
   ```text
-  CO level-CO1
+  CO level - CO1
   BL level - BL1
   ```
 

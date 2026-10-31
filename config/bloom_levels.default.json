@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "classification_scheme": "custom_bl0_bl4",
+  "classification_scheme": "custom_bl0_bl5",
   "definitions_status": "draft_unverified",
   "levels": [
     {
       "id": "BL0",
       "name": "Unclassifiable",
-      "description": "The question cannot be classified under the configured BL1-BL4 scheme despite sufficient context.",
+      "description": "The question cannot be classified under the configured BL1-BL5 scheme despite sufficient context.",
       "keywords": []
     },
     {
@@ -56,6 +56,20 @@
         "analyze",
         "examine",
         "investigate"
+      ]
+    },
+    {
+      "id": "BL5",
+      "name": "Evaluate",
+      "description": "Make and justify a judgment using criteria, evidence, or standards; assess alternatives, validity, or quality.",
+      "keywords": [
+        "evaluate",
+        "assess",
+        "justify",
+        "critique",
+        "recommend",
+        "defend",
+        "judge"
       ]
     }
   ]

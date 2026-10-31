@@ -1,3 +1,4 @@
+import json
 import re
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
@@ -8,6 +9,7 @@ from src.database.db_manager import DatabaseManager
 from src.nlp.text_preprocessor import (
     ApprovedExampleRetriever,
     SimilarApprovedExample,
+    tfidf_similarity_scores,
 )
 from src.prediction.bloom_rules import (
     collect_bloom_keyword_evidence,
@@ -16,7 +18,7 @@ from src.prediction.bloom_rules import (
 
 
 CO_LABELS = frozenset({"CO1", "CO2", "CO3", "CO4", "CO5"})
-BL_LABELS = frozenset({"BL0", "BL1", "BL2", "BL3", "BL4"})
+BL_LABELS = frozenset({"BL0", "BL1", "BL2", "BL3", "BL4", "BL5"})
 _TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 _STOP_WORDS = frozenset(
     {
@@ -76,7 +78,7 @@ class PredictionResult:
     model_version: str
 
     def format_output(self) -> str:
-        return f"CO level-{self.co_label}\nBL level - {self.bl_label}"
+        return f"CO level - {self.co_label}\nBL level - {self.bl_label}"
 
 
 class QuestionPredictor:
@@ -243,6 +245,15 @@ class QuestionPredictor:
             for label in sorted(outcomes, key=lambda value: int(value[2:]))
         )
         allowed_labels = frozenset(outcomes) | {"N/A"}
+        similarity_text = "\n".join(
+            f"{label}: {score:.3f}"
+            for label, score in self._outcome_similarity_scores(
+                question, outcomes
+            ).items()
+        )
+        example_co_label = sorted(
+            outcomes, key=lambda value: int(value[2:])
+        )[0]
         unit_text = self._format_units(relevant_units)
         messages: list[ChatMessage] = [
             {
@@ -258,21 +269,26 @@ class QuestionPredictor:
                     "question and supplied syllabus context; use relevant "
                     "approved examples as supporting references, not prerequisites. "
                     "If the question is unrelated, ambiguous, or lacks enough "
-                    "evidence, choose N/A. Reply with exactly one label from "
+                    "evidence, choose N/A. Return one JSON object with exactly "
+                    'one key, "label", whose value is one label from '
                     f"{', '.join(sorted(outcomes, key=lambda value: int(value[2:])) + ['N/A'])}. "
-                    "Do not add punctuation or any "
-                    "other text."
+                    f'For example: {{"label":"{example_co_label}"}}. '
+                    "Do not add any other text."
                 ),
             },
             {
                 "role": "user",
                 "content": (
                     f"Course outcomes:\n{outcome_text}\n\n"
+                    "Question-to-outcome TF-IDF similarity scores "
+                    "(ranking evidence only, not probabilities):\n"
+                    f"{similarity_text}\n\n"
                     f"Relevant reviewed syllabus topics:\n{unit_text}\n\n"
                     f"Similar faculty-reviewed examples:\n"
                     f"{self._format_examples(approved_examples)}\n\n"
                     f"Examination question:\n{question}\n\n"
-                    "Return only the single course-outcome label."
+                    f'Return only JSON in the form '
+                    f'{{"label":"{example_co_label}"}}.'
                 ),
             },
         ]
@@ -312,10 +328,11 @@ class QuestionPredictor:
                     "Keyword matches are evidence only and must not determine "
                     "the result by themselves. Use BL0 only when the question "
                     "has adequate context but cannot be classified under "
-                    "BL1-BL4. Use N/A when the question is empty, ambiguous, "
-                    "unrelated, or lacks enough context. Reply with exactly "
-                    "one label from BL0, BL1, BL2, BL3, BL4, N/A. Do not add "
-                    "punctuation or any other text."
+                    "BL1-BL5. Use N/A when the question is empty, ambiguous, "
+                    "unrelated, or lacks enough context. Return one JSON "
+                    'object with exactly one key, "label", whose value is '
+                    "one label from BL0, BL1, BL2, BL3, BL4, BL5, N/A. "
+                    'For example: {"label":"BL5"}. Do not add any other text.'
                 ),
             },
             {
@@ -325,7 +342,7 @@ class QuestionPredictor:
                     f"Similar faculty-reviewed examples:\n"
                     f"{self._format_examples(approved_examples)}\n\n"
                     f"Examination question:\n{question}\n\n"
-                    "Return only the single BL label."
+                    'Return only JSON in the form {"label":"BL3"}.'
                 ),
             },
         ]
@@ -342,7 +359,7 @@ class QuestionPredictor:
         try:
             response = self.llm_client.chat(
                 messages,
-                max_tokens=8,
+                max_tokens=24,
                 temperature=0.0,
                 timeout_seconds=self.timeout_seconds,
                 cancellation_event=cancellation_event,
@@ -354,7 +371,17 @@ class QuestionPredictor:
                 "Local classification could not be completed. Check the model "
                 "setup and try again."
             ) from error
-        label = response.strip()
+        try:
+            payload = json.loads(response)
+        except json.JSONDecodeError:
+            return "N/A"
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"label"}
+            or not isinstance(payload["label"], str)
+        ):
+            return "N/A"
+        label = payload["label"]
         return label if label in allowed_labels else "N/A"
 
     def _reviewed_syllabus(self, course_id: str) -> dict[str, Any] | None:
@@ -373,9 +400,9 @@ class QuestionPredictor:
     def _relevant_units(
         question: str, units: list[dict[str, Any]], limit: int = 3
     ) -> list[dict[str, Any]]:
-        question_terms = QuestionPredictor._terms(question)
-        ranked: list[tuple[int, int, dict[str, Any]]] = []
-        for index, unit in enumerate(units):
+        valid_units: list[dict[str, Any]] = []
+        unit_texts: list[str] = []
+        for unit in units:
             if not isinstance(unit, dict):
                 continue
             text = " ".join(
@@ -384,11 +411,32 @@ class QuestionPredictor:
                     " ".join(str(topic) for topic in unit.get("topics", [])),
                 ]
             )
-            overlap = len(question_terms & QuestionPredictor._terms(text))
-            if overlap:
-                ranked.append((overlap, -index, unit))
-        ranked.sort(key=lambda result: (result[0], result[1]), reverse=True)
+            valid_units.append(unit)
+            unit_texts.append(text)
+        scores = tfidf_similarity_scores(question, unit_texts)
+        ranked = sorted(
+            (
+                (score, -index, unit)
+                for index, (score, unit) in enumerate(
+                    zip(scores, valid_units, strict=True)
+                )
+                if score > 0
+            ),
+            key=lambda result: (result[0], result[1]),
+            reverse=True,
+        )
         return [unit for _, _, unit in ranked[:limit]]
+
+    @staticmethod
+    def _outcome_similarity_scores(
+        question: str, outcomes: dict[str, str]
+    ) -> dict[str, float]:
+        labels = sorted(outcomes, key=lambda value: int(value[2:]))
+        scores = tfidf_similarity_scores(
+            question,
+            [outcomes[label] for label in labels],
+        )
+        return dict(zip(labels, scores, strict=True))
 
     @staticmethod
     def _terms(text: str) -> set[str]:

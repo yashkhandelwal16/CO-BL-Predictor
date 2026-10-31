@@ -231,6 +231,25 @@ def test_v1_migration_preserves_data_and_accepts_co5(tmp_path) -> None:
         "BL4",
         prediction_id=prediction["id"],
     )
+    bl5_question = database.create_question(
+        "CS305", "Evaluate the network security trade-offs."
+    )
+    bl5_prediction = database.create_prediction(
+        bl5_question["id"], "CO5", "BL5"
+    )
+    database.save_approved_labels(
+        bl5_question["id"],
+        "CO5",
+        "BL5",
+        prediction_id=bl5_prediction["id"],
+    )
+    bl5_history = next(
+        record
+        for record in database.list_question_history()
+        if record["question_id"] == bl5_question["id"]
+    )
+    assert bl5_history["predicted_bl"] == "BL5"
+    assert bl5_history["approved_bl"] == "BL5"
     assert database.integrity_check() == "ok"
     with database._lock:
         assert database._connection.execute(

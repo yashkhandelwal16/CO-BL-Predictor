@@ -25,7 +25,7 @@ Important architecture decision: use `llama-cpp-python` as the Python binding to
 The final output must be exactly:
 
 ```
-CO level-CO1
+CO level - CO1
 BL level - BL1
 ```
 
@@ -51,7 +51,7 @@ Create the runnable PySide6 desktop interface.
 
 Phase 2 — Course management
 
-Create, edit and manage courses and CO1–CO4.
+Create, edit and manage courses and CO1–CO5.
 
 Phase 3 — PDF extraction and JSON
 
@@ -59,7 +59,7 @@ Parse syllabus PDFs into unit-wise structured data.
 
 Phase 4 — BL configuration
 
-Add BL0–BL4 levels and configurable keywords.
+Add BL0–BL5 levels and configurable keywords.
 
 Phase 5 — SQLite persistence
 
@@ -99,8 +99,8 @@ Goal: establish a clean, maintainable project before implementation.
 - Document the local-only architecture.
 - Confirm that no cloud API is required.
 - Define the output format and the `N/A` rules.
-- Define the supported CO labels: CO1–CO4.
-- Define the supported BL labels: BL0–BL4.
+- Define the supported CO labels: CO1–CO5.
+- Define the supported BL labels: BL0–BL5.
 - Record the model repository, exact GGUF filename, license and checksum once selected.
 
 Suggested folder structure:
@@ -257,13 +257,13 @@ Acceptance criteria: uploading a test PDF produces valid JSON, unit headings and
 
 ## Phase 4 — Bloom's Taxonomy configuration
 
-Goal: implement BL0–BL4 as predefined but configurable rules.
+Goal: implement BL0–BL5 as predefined but configurable rules.
 
 ### Tasks
 
 - Create `config/bloom_levels.json`.
 - Define BL0 as a project-specific fallback or unclassifiable state.
-- Define BL1, BL2, BL3 and BL4.
+- Define BL1, BL2, BL3, BL4 and BL5 (Evaluate).
 - Add a list of example keywords for each level.
 - Validate the configuration when the app starts.
 - Add a Settings screen to edit definitions and keywords.
@@ -404,8 +404,8 @@ Goal: produce only the required labels.
 - Include BL definitions and keywords.
 - Tell the model explicitly not to answer the question.
 - Require a structured response.
-- Validate the returned CO against CO1–CO4.
-- Validate the returned BL against BL0–BL4.
+- Validate the returned CO against CO1–CO5.
+- Validate the returned BL against BL0–BL5.
 - Reject explanations, invented labels and malformed output.
 - Allow independent CO and BL fallback results.
 - Return `N/A` for a field if the evidence is insufficient.
@@ -416,21 +416,21 @@ Goal: produce only the required labels.
 ### Required external output
 
 ```
-CO level-CO1
+CO level - CO1
 BL level - BL1
 ```
 
 Or, if only the BL result is uncertain:
 
 ```
-CO level-CO1
+CO level - CO1
 BL level - N/A
 ```
 
 Or, if both are uncertain:
 
 ```
-CO level-N/A
+CO level - N/A
 BL level - N/A
 ```
 
@@ -528,7 +528,7 @@ Create `.github/copilot-instructions.md` and paste the following into it. This h
 
 ## Project objective
 
-Build a Windows desktop application that predicts Course Outcome labels (CO1–CO4) and Bloom's Taxonomy labels (BL0–BL4) for academic exam questions.
+Build a Windows desktop application that predicts Course Outcome labels (CO1–CO5) and Bloom's Taxonomy labels (BL0–BL5) for academic exam questions.
 
 The application must not answer exam questions. It must return only the requested CO and BL labels, or N/A when evidence is insufficient.
 
@@ -553,8 +553,8 @@ Do not add Ollama or cloud AI APIs as required runtime dependencies.
 2. Users can upload syllabus PDFs.
 3. The application extracts syllabus text, units, topics and available course outcomes into structured JSON.
 4. Users can review and correct extracted information.
-5. Each course has separate CO1, CO2, CO3 and CO4 fields.
-6. Bloom's Taxonomy levels BL0–BL4 and their keywords are configurable.
+5. Each course may have separate CO1–CO5 fields.
+6. Custom cognitive levels BL0–BL5 and their keywords are configurable; BL5 means Evaluate and definitions remain subject to institutional approval.
 7. Users can submit academic questions for local prediction.
 8. Predictions use the selected course's verified CO descriptions and relevant syllabus topics.
 9. Approved historical examples may be retrieved to support prediction.
@@ -566,17 +566,17 @@ Do not add Ollama or cloud AI APIs as required runtime dependencies.
 
 Successful prediction:
 
-CO level-CO1\
+CO level - CO1\
 BL level - BL1
 
 Uncertain CO:
 
-CO level-N/A\
+CO level - N/A\
 BL level - BL2
 
 Uncertain BL:
 
-CO level-CO3\
+CO level - CO3\
 BL level - N/A
 
 The GUI prediction result must contain only these two lines. Do not include explanations, reasoning, answers, confidence text or Markdown in the displayed result.

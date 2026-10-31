@@ -197,9 +197,9 @@ def test_prediction_result_displays_only_the_required_two_lines() -> None:
     get_application()
     window = MainWindow()
 
-    window._prediction_completed("CO level-CO2\nBL level - BL3")
+    window._prediction_completed("CO level - CO2\nBL level - BL3")
 
-    assert window.prediction_result.text() == "CO level-CO2\nBL level - BL3"
+    assert window.prediction_result.text() == "CO level - CO2\nBL level - BL3"
     assert window.prediction_status.text() == "Suggestion ready for faculty review."
 
 
@@ -543,6 +543,10 @@ def test_label_review_only_offers_saved_course_outcomes() -> None:
         dialog.co_selector.itemText(index)
         for index in range(dialog.co_selector.count())
     ] == ["CO5", "N/A"]
+    assert [
+        dialog.bl_selector.itemText(index)
+        for index in range(dialog.bl_selector.count())
+    ] == ["BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"]
 
 
 def test_create_course_action_connects_form_to_course_manager(monkeypatch) -> None:

@@ -57,8 +57,9 @@ in separate modules:
    relevant reviewed syllabus topics, configured BL rules, and approved
    same-course examples.
 4. The local inference service returns structured candidate labels. A
-   validator rejects labels outside the selected course's saved CO1–CO5
-   outcomes and BL0–BL4 sets; it does not repair malformed output by guessing.
+   validator parses a strict JSON label object and rejects labels outside the
+   selected course's saved CO1–CO5 outcomes and BL0–BL5 sets; malformed output
+   falls back to `N/A` independently for each field.
 5. SQLite stores course/syllabus versions, questions, predictions, and
    faculty-approved labels separately. The UI displays only the required
    prediction labels and review state.
@@ -110,16 +111,16 @@ modules or move the prototype wholesale before the relevant phase.
   and keyboard selection. Course/syllabus lists and tables support copying
   selected entries with Ctrl+C; read-only and editable text fields retain their
   standard selection and copy shortcuts.
-- The project uses custom BL0–BL4 labels, not the standard six-level revised
-  Bloom taxonomy. Faculty/institution definitions must be documented before
-  the rules are treated as official.
-- BL0 means the question is unclassifiable under the configured BL1–BL4
+- The project uses custom BL0–BL5 labels, not the complete standard six-level
+  revised Bloom taxonomy. BL5 currently means Evaluate, following BL4 Analyze;
+  faculty/institution definitions remain unverified.
+- BL0 means the question is unclassifiable under the configured BL1–BL5
   scheme despite adequate question/context. N/A means evidence or context is
   insufficient to assign that field. CO and BL uncertainty are independent.
 - The prediction output contains exactly these two lines:
 
   ```text
-  CO level-CO1
+  CO level - CO1
   BL level - BL1
   ```
 
@@ -141,7 +142,7 @@ database files, exports, and model binaries out of Git.
 1. Python 3.11 environment and PySide6 GUI.
 2. Course management and CO entry.
 3. PDF extraction and reviewable JSON.
-4. Configurable custom BL0–BL4 rules.
+4. Configurable custom BL0–BL5 rules.
 5. SQLite persistence and faculty review.
 6. Local Qwen/llama.cpp compatibility and model integration.
 7. Validated CO/BL prediction and N/A handling.
@@ -217,11 +218,13 @@ appropriately.
 PyMuPDF is distributed under AGPL-3.0 or a commercial license. Review its
 licensing terms before distributing this application.
 
-The custom BL0–BL4 keyword definitions are in `config/bloom_levels.json`.
+The custom BL0–BL5 keyword definitions are in `config/bloom_levels.json`.
 They are starter examples, marked as unverified, not official institutional
 rules. Update keywords there and restart the app; the configuration is
-validated on startup. BL keywords provide evidence only and do not determine a
-final classification by themselves. There is intentionally no Settings screen.
+validated on startup. Existing BL0–BL4 configuration files are upgraded in
+memory with the default BL5 (Evaluate) definition. BL keywords provide
+evidence only and do not determine a final classification by themselves.
+There is intentionally no Settings screen.
 
 To create the intended Python 3.11 environment after Python 3.11 is installed:
 
@@ -379,7 +382,7 @@ network-socket blocking for local inference.
 To report accuracy, prepare a UTF-8 JSON Lines file from a faculty-labelled,
 held-out set. Each line must contain `expected_co`, `predicted_co`,
 `expected_bl`, and `predicted_bl`. Expected labels must be CO1–CO5 and
-BL0–BL4; predictions may also be `N/A`. Keep examples used for prompt design
+BL0–BL5; predictions may also be `N/A`. Keep examples used for prompt design
 or retrieval out of the held-out set, and do not treat unreviewed model
 predictions as ground truth. Questions may be omitted from this metrics file;
 if included, keep the file local because it can contain private assessment
@@ -461,7 +464,7 @@ Do those release checks before publishing a distributable.
 - Phase 3 — PDF extraction and reviewable JSON: implemented for text-based
   PDFs, with editable details, unit/topic and outcome tables, page references,
   warnings, validation, and source-file preservation.
-- Phase 4 — Custom BL0–BL4 configuration and keyword evidence: implemented.
+- Phase 4 — Custom BL0–BL5 configuration and keyword evidence: implemented.
   Definitions remain draft/unverified until institution-approved rules are
   supplied. Settings UI remains excluded.
 - Phase 5 — SQLite persistence: versioned schema, course and syllabus

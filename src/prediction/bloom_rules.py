@@ -11,7 +11,8 @@ from src.utils.resource_paths import (
 )
 
 
-EXPECTED_LEVEL_IDS = ("BL0", "BL1", "BL2", "BL3", "BL4")
+EXPECTED_LEVEL_IDS = ("BL0", "BL1", "BL2", "BL3", "BL4", "BL5")
+LEGACY_LEVEL_IDS = ("BL0", "BL1", "BL2", "BL3", "BL4")
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_CONFIG_PATH = _PROJECT_ROOT / "config" / "bloom_levels.default.json"
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "bloom_levels.json"
@@ -40,7 +41,52 @@ def load_bloom_config(path: str | Path | None = None) -> dict[str, Any]:
             f"Classification configuration could not be read: {error}"
         ) from error
 
+    config = _upgrade_legacy_config(config)
     validate_bloom_config(config)
+    return config
+
+
+def _upgrade_legacy_config(config: Any) -> Any:
+    if (
+        not isinstance(config, dict)
+        or config.get("schema_version") != 1
+        or config.get("classification_scheme") != "custom_bl0_bl4"
+    ):
+        return config
+    levels = config.get("levels")
+    if not isinstance(levels, list) or tuple(
+        level.get("id") if isinstance(level, dict) else None for level in levels
+    ) != LEGACY_LEVEL_IDS:
+        return config
+
+    config["classification_scheme"] = "custom_bl0_bl5"
+    if config["levels"][0].get("description") == (
+        "The question cannot be classified under the configured BL1-BL4 "
+        "scheme despite sufficient context."
+    ):
+        config["levels"][0]["description"] = (
+            "The question cannot be classified under the configured BL1-BL5 "
+            "scheme despite sufficient context."
+        )
+    config["levels"].append(
+        {
+            "id": "BL5",
+            "name": "Evaluate",
+            "description": (
+                "Make and justify a judgment using criteria, evidence, or "
+                "standards; assess alternatives, validity, or quality."
+            ),
+            "keywords": [
+                "evaluate",
+                "assess",
+                "justify",
+                "critique",
+                "recommend",
+                "defend",
+                "judge",
+            ],
+        }
+    )
     return config
 
 
@@ -49,7 +95,7 @@ def validate_bloom_config(config: Any) -> None:
         raise BloomConfigurationError("Configuration must be a JSON object.")
     if config.get("schema_version") != 1:
         raise BloomConfigurationError("Unsupported classification configuration version.")
-    if config.get("classification_scheme") != "custom_bl0_bl4":
+    if config.get("classification_scheme") != "custom_bl0_bl5":
         raise BloomConfigurationError("The configured classification scheme is invalid.")
     if config.get("definitions_status") not in {
         "draft_unverified",

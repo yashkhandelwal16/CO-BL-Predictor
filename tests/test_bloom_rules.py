@@ -1,4 +1,5 @@
 import copy
+import json
 
 import pytest
 
@@ -21,8 +22,9 @@ def test_default_config_has_custom_levels_and_is_marked_unverified() -> None:
         "BL2",
         "BL3",
         "BL4",
+        "BL5",
     ]
-    assert config["classification_scheme"] == "custom_bl0_bl4"
+    assert config["classification_scheme"] == "custom_bl0_bl5"
     assert config["definitions_status"] == "draft_unverified"
 
 
@@ -37,6 +39,7 @@ def test_keyword_evidence_is_case_insensitive_and_matches_whole_words() -> None:
 
     assert by_level["BL2"] == ["explain"]
     assert by_level["BL4"] == ["compare"]
+    assert by_level["BL5"] == []
     assert all("state" not in matches for matches in by_level.values())
 
 
@@ -136,3 +139,24 @@ def test_restore_defaults_replaces_custom_keywords(tmp_path) -> None:
     assert restored == load_bloom_config()
     assert load_bloom_config(config_path) == restored
     assert "define" in restored["levels"][1]["keywords"]
+
+
+def test_legacy_bl0_bl4_configuration_is_upgraded_with_evaluate(tmp_path) -> None:
+    config = load_bloom_config()
+    config["levels"] = config["levels"][:-1]
+    config["classification_scheme"] = "custom_bl0_bl4"
+    config["levels"][0]["description"] = (
+        "The question cannot be classified under the configured BL1-BL4 "
+        "scheme despite sufficient context."
+    )
+    legacy_path = tmp_path / "legacy-bloom.json"
+    legacy_path.write_text(
+        json.dumps(config),
+        encoding="utf-8",
+    )
+
+    upgraded = load_bloom_config(legacy_path)
+
+    assert upgraded["classification_scheme"] == "custom_bl0_bl5"
+    assert [level["id"] for level in upgraded["levels"]][-1] == "BL5"
+    assert upgraded["levels"][-1]["name"] == "Evaluate"

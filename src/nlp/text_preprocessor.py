@@ -17,6 +17,29 @@ def preprocess_text(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def tfidf_similarity_scores(query: str, candidates: list[str]) -> list[float]:
+    if not candidates:
+        return []
+    if not query.strip():
+        return [0.0] * len(candidates)
+
+    try:
+        vectorizer = TfidfVectorizer(
+            lowercase=False,
+            ngram_range=(1, 2),
+            sublinear_tf=True,
+        )
+        vectors = vectorizer.fit_transform([preprocess_text(query), *(
+            preprocess_text(candidate) for candidate in candidates
+        )])
+    except ValueError:
+        return [0.0] * len(candidates)
+    return [
+        float(score)
+        for score in cosine_similarity(vectors[0], vectors[1:]).ravel()
+    ]
+
+
 @dataclass(frozen=True)
 class SimilarApprovedExample:
     question_text: str
@@ -63,31 +86,20 @@ class ApprovedExampleRetriever:
         if not approved_records:
             return []
 
-        texts = [
-            preprocess_text(record["question_text"])
-            for record in approved_records
-        ]
-        try:
-            vectorizer = TfidfVectorizer(
-                lowercase=False,
-                ngram_range=(1, 2),
-                sublinear_tf=True,
-            )
-            vectors = vectorizer.fit_transform([*texts, query])
-        except ValueError:
-            return []
-
-        scores = cosine_similarity(vectors[-1], vectors[:-1]).ravel()
+        scores = tfidf_similarity_scores(
+            query,
+            [record["question_text"] for record in approved_records],
+        )
         ranked = sorted(
             enumerate(scores),
-            key=lambda item: (-float(item[1]), item[0]),
+            key=lambda item: (-item[1], item[0]),
         )
         return [
             SimilarApprovedExample(
                 question_text=approved_records[index]["question_text"],
                 co_label=approved_records[index]["approved_co"],
                 bl_label=approved_records[index]["approved_bl"],
-                similarity=float(score),
+                similarity=score,
             )
             for index, score in ranked
             if score >= self.min_similarity

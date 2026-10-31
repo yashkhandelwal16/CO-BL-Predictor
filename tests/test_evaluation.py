@@ -72,6 +72,20 @@ def test_evaluation_accepts_co5() -> None:
     assert report["co"]["accuracy"] == 1.0
 
 
+def test_evaluation_accepts_bl5() -> None:
+    record = {
+        "expected_co": "CO1",
+        "predicted_co": "CO1",
+        "expected_bl": "BL5",
+        "predicted_bl": "BL5",
+    }
+
+    report = evaluate_predictions([record])
+
+    assert report["bl"]["per_class"]["BL5"]["support"] == 1
+    assert report["bl"]["accuracy"] == 1.0
+
+
 @pytest.mark.parametrize(
     ("records", "message"),
     [

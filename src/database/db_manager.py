@@ -10,9 +10,9 @@ from threading import RLock
 from typing import Any, Iterator
 
 
-DATABASE_SCHEMA_VERSION = 3
+DATABASE_SCHEMA_VERSION = 4
 VALID_CO_LABELS = {"CO1", "CO2", "CO3", "CO4", "CO5", "N/A"}
-VALID_BL_LABELS = {"BL0", "BL1", "BL2", "BL3", "BL4", "N/A"}
+VALID_BL_LABELS = {"BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"}
 
 
 class DatabaseError(RuntimeError):
@@ -110,7 +110,7 @@ class DatabaseManager:
                 )
             if current_version == DATABASE_SCHEMA_VERSION:
                 return
-            if current_version not in {0, 1, 2}:
+            if current_version not in {0, 1, 2, 3}:
                 raise DatabaseError(
                     f"No migration is available from database version "
                     f"{current_version}."
@@ -124,8 +124,63 @@ class DatabaseManager:
             else:
                 if current_version == 1:
                     self._migrate_v1_to_v2(connection)
-                self._migrate_v2_to_v3(connection)
+                if current_version in {1, 2}:
+                    self._migrate_v2_to_v3(connection)
+                self._migrate_v3_to_v4(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate_v3_to_v4(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "CREATE TABLE predictions_v4 ("
+            "id TEXT PRIMARY KEY, "
+            "question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, "
+            "syllabus_version_id TEXT REFERENCES syllabus_versions(id) "
+            "ON DELETE SET NULL, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK (bl_label IN "
+            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'N/A')), "
+            "status TEXT NOT NULL CHECK (status IN "
+            "('predicted', 'insufficient_context', 'failed')), "
+            "provider_name TEXT, model_name TEXT, model_version TEXT, "
+            "created_at TEXT NOT NULL, UNIQUE (id, question_id))"
+        )
+        connection.execute(
+            "INSERT INTO predictions_v4 SELECT * FROM predictions"
+        )
+        connection.execute(
+            "CREATE TABLE approved_labels_v4 ("
+            "id TEXT PRIMARY KEY, "
+            "question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, "
+            "prediction_id TEXT, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK (bl_label IN "
+            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'N/A')), "
+            "review_status TEXT NOT NULL CHECK "
+            "(review_status IN ('approved', 'corrected')), "
+            "reviewed_by TEXT, review_note TEXT, created_at TEXT NOT NULL, "
+            "FOREIGN KEY (prediction_id, question_id) "
+            "REFERENCES predictions_v4(id, question_id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "INSERT INTO approved_labels_v4 SELECT * FROM approved_labels"
+        )
+        connection.execute("DROP TABLE approved_labels")
+        connection.execute("DROP TABLE predictions")
+        connection.execute("ALTER TABLE predictions_v4 RENAME TO predictions")
+        connection.execute(
+            "ALTER TABLE approved_labels_v4 RENAME TO approved_labels"
+        )
+        connection.execute(
+            "CREATE INDEX idx_predictions_question_created "
+            "ON predictions(question_id, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX idx_approved_question_created "
+            "ON approved_labels(question_id, created_at DESC)"
+        )
 
     @staticmethod
     def _migrate_v2_to_v3(connection: sqlite3.Connection) -> None:
@@ -270,7 +325,7 @@ class DatabaseManager:
             "co_label TEXT NOT NULL CHECK (co_label IN "
             "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
             "bl_label TEXT NOT NULL CHECK (bl_label IN "
-            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')), "
+            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'N/A')), "
             "status TEXT NOT NULL CHECK (status IN "
             "('predicted', 'insufficient_context', 'failed')), "
             "provider_name TEXT, model_name TEXT, model_version TEXT, "
@@ -287,7 +342,7 @@ class DatabaseManager:
             "co_label TEXT NOT NULL CHECK (co_label IN "
             "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
             "bl_label TEXT NOT NULL CHECK (bl_label IN "
-            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')), "
+            "('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'N/A')), "
             "review_status TEXT NOT NULL CHECK "
             "(review_status IN ('approved', 'corrected')), "
             "reviewed_by TEXT, review_note TEXT, created_at TEXT NOT NULL, "
@@ -1190,7 +1245,7 @@ CREATE TABLE predictions (
     co_label TEXT NOT NULL CHECK (
         co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')
     ),
-    bl_label TEXT NOT NULL CHECK (bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')),
+    bl_label TEXT NOT NULL CHECK (bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'N/A')),
     status TEXT NOT NULL CHECK (
         status IN ('predicted', 'insufficient_context', 'failed')
     ),
@@ -1210,7 +1265,7 @@ CREATE TABLE approved_labels (
     co_label TEXT NOT NULL CHECK (
         co_label IN ('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')
     ),
-    bl_label TEXT NOT NULL CHECK (bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'N/A')),
+    bl_label TEXT NOT NULL CHECK (bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'N/A')),
     review_status TEXT NOT NULL CHECK (review_status IN ('approved', 'corrected')),
     reviewed_by TEXT,
     review_note TEXT,
