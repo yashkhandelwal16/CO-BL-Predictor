@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.courses.course_manager import COURSE_OUTCOME_IDS
+from src.prediction.prediction_worker import PredictionWorker
 from src.syllabus.pdf_extractor import validate_syllabus_data
 from src.ui.course_dialog import CourseDialog
 from src.ui.main_window import MainWindow
@@ -77,6 +78,30 @@ def test_prediction_requires_a_course_and_question() -> None:
 
     window.question_input.setPlainText("Explain network routing.")
     assert window.predict_button.isEnabled()
+
+
+def test_invalid_question_message_is_shown_in_prediction_status() -> None:
+    get_application()
+    window = MainWindow()
+    outcomes = {
+        outcome_id: f"Description for {outcome_id}"
+        for outcome_id in COURSE_OUTCOME_IDS
+    }
+    window.course_manager.add_course("Computer Networks", "CS305", outcomes)
+    window.refresh_course_list()
+    worker = PredictionWorker(
+        window.database,
+        "CS305",
+        "Hello, how are you?",
+        window.bloom_config,
+    )
+    worker.failed.connect(window._prediction_failed)
+
+    worker.run()
+
+    assert window.prediction_status.text() == "This is not an academic question."
+    assert window.database.list_question_history() == []
+    window.close_storage()
 
 
 def test_prediction_result_displays_only_the_required_two_lines() -> None:

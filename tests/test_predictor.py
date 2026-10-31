@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import socket
 from pathlib import Path
 
@@ -32,8 +33,12 @@ class FakeChatClient:
 
 def outcome_descriptions():
     return {
-        outcome_id: f"Students will demonstrate outcome {number}."
-        for number, outcome_id in enumerate(COURSE_OUTCOME_IDS, start=1)
+        "CO1": "Explain computer network models and protocols.",
+        "CO2": (
+            "Analyze network routing algorithms, Dijkstra, and shortest paths."
+        ),
+        "CO3": "Apply data link layer framing and error detection.",
+        "CO4": "Evaluate network security and performance.",
     }
 
 
@@ -123,8 +128,6 @@ def test_prediction_formats_only_the_two_required_lines_and_persists_metadata(
     [
         ("Compare two routing strategies.", "N/A", "BL2", "N/A", "BL2"),
         ("Compare two routing strategies.", "CO3", "N/A", "CO3", "N/A"),
-        ("How?", "N/A", "N/A", "N/A", "N/A"),
-        ("Explain photosynthesis.", "N/A", "N/A", "N/A", "N/A"),
         ("Compare two routing strategies.", "The answer is CO1.", "BL4", "N/A", "BL4"),
         ("Compare two routing strategies.", "CO9", "BL8", "N/A", "N/A"),
         ("Compare two routing strategies.", "CO1\nBL2", "BL3", "N/A", "BL3"),
@@ -165,6 +168,82 @@ def test_empty_question_is_rejected_without_model_or_database_records(tmp_path):
 
     assert client.messages == []
     assert database.list_question_history() == []
+    database.close()
+
+
+@pytest.mark.parametrize(
+    ("question_text", "expected_message"),
+    [
+        (
+            "Yash Khandelwal",
+            "Please enter a valid academic question related to the selected course syllabus.",
+        ),
+        ("Hello", "This is not an academic question."),
+        ("Good morning", "This is not an academic question."),
+        ("How are you?", "This is not an academic question."),
+        ("Hello, how are you?", "This is not an academic question."),
+        ("What is your name?", "This is not an academic question."),
+        (
+            "Who won the cricket match yesterday?",
+            "Please enter a valid academic question related to the selected course syllabus.",
+        ),
+        (
+            "asdf qwer zxcv",
+            "Please enter a valid academic question related to the selected course syllabus.",
+        ),
+    ],
+)
+def test_non_academic_and_unrelated_questions_are_rejected_before_inference(
+    tmp_path, question_text, expected_message
+):
+    database = make_database(tmp_path)
+    client = FakeChatClient(["CO1", "BL1"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    with pytest.raises(PredictionInputError, match=re.escape(expected_message)):
+        predictor.predict("CS305", question_text)
+
+    assert client.messages == []
+    assert database.list_question_history() == []
+    database.close()
+
+
+@pytest.mark.parametrize(
+    "question_text",
+    ["Define inheritance in Java.", "Explain inheritance."],
+)
+def test_syllabus_related_academic_question_reaches_prediction(
+    tmp_path, question_text
+):
+    database = DatabaseManager(tmp_path / "predictor.sqlite3")
+    outcomes = {
+        "CO1": "Explain classes and objects in Java.",
+        "CO2": "Explain polymorphism and dynamic dispatch in Java.",
+        "CO3": "Apply encapsulation and abstraction.",
+        "CO4": "Analyze object-oriented design patterns.",
+    }
+    CourseManager(database).add_course(
+        "Object Oriented Programming", "CS301", outcomes
+    )
+    syllabus = reviewed_syllabus("CS301")
+    syllabus["course_name"] = "Object Oriented Programming"
+    syllabus["units"] = [
+        {
+            "unit_number": 1,
+            "unit_title": "Inheritance",
+            "topics": ["Java inheritance"],
+        }
+    ]
+    database.save_syllabus_version(syllabus, tmp_path / "oop.json")
+    client = FakeChatClient(["CO2", "BL1"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict("CS301", question_text)
+
+    assert result.co_label == "CO2"
+    assert result.bl_label == "BL1"
+    assert len(client.messages) == 2
+    assert len(database.list_question_history()) == 1
     database.close()
 
 

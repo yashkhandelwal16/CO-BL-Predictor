@@ -21,10 +21,21 @@ _TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
 _STOP_WORDS = frozenset(
     {
         "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-        "how", "in", "into", "is", "it", "of", "on", "or", "that", "the",
-        "their", "this", "to", "use", "what", "when", "where", "which",
-        "with", "write", "explain", "describe", "discuss", "give", "show",
+        "about", "calculate", "classify", "compare", "compute", "define",
+        "demonstrate", "describe", "determine", "differentiate", "discuss",
+        "evaluate", "explain", "give", "how", "identify", "in", "into",
+        "is", "it", "list", "of", "on", "or", "prove", "recall", "show",
+        "solve", "state", "summarize", "that", "the", "their", "this", "to",
+        "use", "what", "when", "where", "which", "who", "why", "with",
+        "write",
     }
+)
+_SMALL_TALK_PATTERN = re.compile(
+    r"^(?:(?:hi|hello|hey|good\s+(?:morning|afternoon|evening))"
+    r"(?:[,.!]?\s+how\s+are\s+you(?:\s+doing)?)?"
+    r"|how\s+are\s+you(?:\s+doing)?"
+    r"|what(?:'s| is)\s+your\s+name)[.!?\s]*$",
+    re.IGNORECASE,
 )
 
 
@@ -116,9 +127,17 @@ class QuestionPredictor:
             )
 
         syllabus = self._reviewed_syllabus(normalized_course_code)
+        syllabus_units = (
+            syllabus["content"].get("units", []) if syllabus else []
+        )
+        self._validate_question_relevance(
+            normalized_question,
+            outcomes,
+            syllabus_units,
+        )
         relevant_units = self._relevant_units(
             normalized_question,
-            syllabus["content"].get("units", []) if syllabus else [],
+            syllabus_units,
         )
         approved_examples = self.example_retriever.retrieve(
             normalized_course_code, normalized_question
@@ -169,6 +188,32 @@ class QuestionPredictor:
             model_name=model_name,
             model_version=model_version,
         )
+
+    def _validate_question_relevance(
+        self,
+        question: str,
+        outcomes: dict[str, str],
+        syllabus_units: list[dict[str, Any]],
+    ) -> None:
+        if _SMALL_TALK_PATTERN.fullmatch(question.strip()):
+            raise PredictionInputError("This is not an academic question.")
+
+        course_content_parts = [
+            str(description) for description in outcomes.values()
+        ]
+        for unit in syllabus_units:
+            if not isinstance(unit, dict):
+                continue
+            course_content_parts.append(str(unit.get("unit_title", "")))
+            topics = unit.get("topics", [])
+            if isinstance(topics, list):
+                course_content_parts.extend(str(topic) for topic in topics)
+        course_content = " ".join(course_content_parts)
+        if not self._terms(question).intersection(self._terms(course_content)):
+            raise PredictionInputError(
+                "Please enter a valid academic question related to the "
+                "selected course syllabus."
+            )
 
     def _predict_co(
         self,

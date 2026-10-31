@@ -178,11 +178,16 @@ review of course details, units, topics, and outcomes. Reviewed JSON and
 versioned syllabus metadata are saved in the per-user application data folder;
 the original PDF remains in its original location. Unclear or missing fields
 are flagged. Scanned PDFs without selectable text are reported; OCR is not
-included. The Predict screen produces local suggested labels for faculty
-review. In History, select a question to approve or correct its labels; the
-original suggestion remains saved separately. Reviewed labels can support
-retrieval of similar examples from that course. History also offers data
-backup and JSON export.
+included. Before prediction, the app rejects common greetings and requires at
+least one meaningful term in the question to match the selected course's CO
+descriptions or latest reviewed syllabus unit titles/topics. Rejected input is
+not sent to the model or saved in History. This is a conservative text-match
+check, not semantic understanding; add complete course outcomes and review the
+syllabus to reduce false rejections of valid paraphrases. The Predict screen
+produces local suggested labels for faculty review. In History, select a
+question to approve or correct its labels; the original suggestion remains
+saved separately. Reviewed labels can support retrieval of similar examples
+from that course. History also offers data backup and JSON export.
 
 On Windows, the application data folder is
 `%LOCALAPPDATA%\\CO-BL-Predictor`. It contains the database and reviewed
