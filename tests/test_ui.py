@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
     QFrame,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -156,6 +157,41 @@ def test_main_window_uses_white_and_violet_theme() -> None:
 
     active_navigation = window.navigation_buttons["Dashboard"]
     assert active_navigation.isChecked()
+
+
+def test_history_table_uses_available_page_space_and_readable_columns() -> None:
+    get_application()
+    window = MainWindow()
+    history_layout = window.pages["History"].layout()
+    header = window.history_table.horizontalHeader()
+
+    assert history_layout.stretch(history_layout.indexOf(window.history_table)) == 1
+    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+    assert window.history_table.columnWidth(0) == 170
+    assert window.history_table.columnWidth(2) == 135
+    assert window.history_table.columnWidth(3) == 135
+    assert window.history_table.columnWidth(4) == 110
+    assert window.history_table.columnWidth(5) == 185
+
+
+def test_syllabus_page_has_spaced_content_and_readable_version_list() -> None:
+    get_application()
+    window = MainWindow()
+    card_layout = window.syllabus_versions_list.parentWidget().layout()
+    stylesheet = window.styleSheet()
+
+    assert card_layout.spacing() >= 10
+    assert card_layout.stretch(
+        card_layout.indexOf(window.syllabus_versions_list)
+    ) == 1
+    assert window.syllabus_versions_list.minimumHeight() >= 180
+    assert "QListWidget::item" in stylesheet
+    assert "padding: 10px 12px" in stylesheet
+    assert any(
+        label.text() == "Recently reviewed syllabus"
+        and label.objectName() == "cardTitle"
+        for label in window.findChildren(QLabel)
+    )
 
 
 def test_course_page_lists_and_filters_courses() -> None:
@@ -439,6 +475,8 @@ def test_course_pdf_selection_populates_extracted_outcome_fields(
     dialog._choose_pdf()
 
     assert dialog.syllabus_label.text() == "course.pdf"
+    assert dialog.name_input.text() == "Networks"
+    assert dialog.code_input.text() == "CS301"
     assert dialog._outcome_inputs["CO1"].toPlainText() == (
         "Explain network models."
     )

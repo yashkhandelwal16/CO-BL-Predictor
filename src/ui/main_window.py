@@ -433,6 +433,7 @@ class MainWindow(QMainWindow):
         card = self._card()
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(22, 20, 22, 20)
+        card_layout.setSpacing(12)
 
         title = QLabel("Select an official syllabus PDF")
         title.setObjectName("cardTitle")
@@ -447,17 +448,20 @@ class MainWindow(QMainWindow):
         self.syllabus_file_label.setWordWrap(True)
         self.syllabus_versions_list = QListWidget()
         self.syllabus_versions_list.setObjectName("syllabusVersions")
+        self.syllabus_versions_list.setMinimumHeight(190)
 
         choose_button = QPushButton("Import syllabus")
         choose_button.setObjectName("primaryButton")
         choose_button.clicked.connect(self._import_syllabus)
+        reviewed_heading = QLabel("Recently reviewed syllabus")
+        reviewed_heading.setObjectName("cardTitle")
 
         card_layout.addWidget(title)
         card_layout.addWidget(description)
         card_layout.addWidget(self.syllabus_file_label)
         card_layout.addWidget(choose_button, 0, Qt.AlignmentFlag.AlignLeft)
-        card_layout.addWidget(QLabel("Recently reviewed syllabi"))
-        card_layout.addWidget(self.syllabus_versions_list)
+        card_layout.addWidget(reviewed_heading)
+        card_layout.addWidget(self.syllabus_versions_list, 1)
         layout.addWidget(card)
         self.refresh_syllabus_versions()
         layout.addStretch(1)
@@ -668,7 +672,19 @@ class MainWindow(QMainWindow):
         self.history_table.itemSelectionChanged.connect(
             self._update_review_button
         )
-        self.history_table.horizontalHeader().setSectionResizeMode(
+        history_header = self.history_table.horizontalHeader()
+        for column, width in (
+            (0, 170),
+            (2, 135),
+            (3, 135),
+            (4, 110),
+            (5, 185),
+        ):
+            history_header.setSectionResizeMode(
+                column, QHeaderView.ResizeMode.Interactive
+            )
+            self.history_table.setColumnWidth(column, width)
+        history_header.setSectionResizeMode(
             1, QHeaderView.ResizeMode.Stretch
         )
         layout.addWidget(self.history_table, 1)
@@ -676,7 +692,6 @@ class MainWindow(QMainWindow):
         self.history_empty_label.setObjectName("mutedText")
         layout.addWidget(self.history_empty_label)
         self.refresh_question_history()
-        layout.addStretch(1)
         return page
 
     def refresh_question_history(self, query: str | None = None) -> None:
@@ -857,6 +872,9 @@ class MainWindow(QMainWindow):
                 font-family: "Segoe UI";
                 font-size: 14px;
             }
+            QLabel {
+                background: transparent;
+            }
             QWidget#sidebar {
                 background: #ffffff;
                 border-right: 1px solid #e9e5f0;
@@ -971,6 +989,20 @@ class MainWindow(QMainWindow):
             QComboBox:disabled, QLineEdit:disabled, QTextEdit:disabled {
                 color: #817b8d;
                 background: #f4f2f7;
+            }
+            QListWidget {
+                background: #ffffff;
+                border: 1px solid #e9e5f0;
+                border-radius: 8px;
+                padding: 4px;
+            }
+            QListWidget::item {
+                border-bottom: 1px solid #eeeaf5;
+                padding: 10px 12px;
+            }
+            QListWidget::item:selected {
+                background: #ede9fe;
+                color: #5b21b6;
             }
             QStatusBar {
                 background: #ffffff;

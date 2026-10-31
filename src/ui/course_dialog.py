@@ -164,6 +164,10 @@ class CourseDialog(QDialog):
 
         self._syllabus_pdf = selected_path
         self.syllabus_label.setText(Path(selected_path).name)
+        if syllabus_data["course_name"]:
+            self.name_input.setText(syllabus_data["course_name"])
+        if syllabus_data["course_code"]:
+            self.code_input.setText(syllabus_data["course_code"])
         extracted_outcomes = {
             outcome["id"]: outcome["description"]
             for outcome in syllabus_data["course_outcomes"]
