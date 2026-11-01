@@ -54,6 +54,33 @@ def test_window_has_all_phase_one_pages() -> None:
     assert window.minimumHeight() >= 600
 
 
+def test_github_credit_links_to_repository_from_workspace_corner(
+    monkeypatch,
+) -> None:
+    get_application()
+    window = MainWindow()
+    credit = window.findChild(QPushButton, "githubCredit")
+    opened_urls = []
+    monkeypatch.setattr(
+        main_window_module.QDesktopServices,
+        "openUrl",
+        lambda url: opened_urls.append(url.toString()),
+    )
+
+    assert credit is not None
+    assert credit.text() == "Yash Khandelwal"
+    assert not credit.icon().isNull()
+    assert "color: rgba(100, 116, 139, 165)" in window.styleSheet()
+    layout = window.workspace.layout()
+    assert layout.indexOf(credit) > layout.indexOf(window.page_stack)
+
+    credit.click()
+
+    assert opened_urls == [
+        "https://github.com/yashkhandelwal16/CO-BL-Predictor"
+    ]
+
+
 def test_displayed_text_is_selectable_and_list_items_can_be_copied() -> None:
     application = get_application()
     window = MainWindow()

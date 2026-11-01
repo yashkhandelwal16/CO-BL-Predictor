@@ -80,6 +80,16 @@ def workspace_stylesheet() -> str:
             color: {colors["surface"]};
             font-weight: 700;
         }}
+        QPushButton#githubCredit {{
+            background: transparent;
+            border: 0;
+            color: rgba(100, 116, 139, 165);
+            font-size: 12px;
+            padding: 0 2px;
+        }}
+        QPushButton#githubCredit:hover {{
+            color: rgba(100, 116, 139, 210);
+        }}
         QLabel#pageTitle {{
             color: {colors["heading"]};
             font-size: 27px;

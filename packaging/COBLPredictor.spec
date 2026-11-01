@@ -65,8 +65,10 @@ pyz = PYZ(analysis.pure)
 executable = EXE(
     pyz,
     analysis.scripts,
+    analysis.binaries,
+    analysis.datas,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name="CO-BL-Predictor",
     debug=False,
     bootloader_ignore_signals=False,
@@ -81,12 +83,4 @@ executable = EXE(
     icon=str(project_root / "packaging" / "CO-BL-Predictor.ico"),
     version=str(project_root / "packaging" / "version_info.txt"),
     contents_directory="_internal",
-)
-COLLECT(
-    executable,
-    analysis.binaries,
-    analysis.datas,
-    strip=False,
-    upx=False,
-    name="CO-BL-Predictor",
 )

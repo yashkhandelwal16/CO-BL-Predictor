@@ -26,6 +26,22 @@ the app:
 The app does not require a cloud AI service. Model and application data are
 stored locally.
 
+## Build a portable Windows executable
+
+With the verified model at `models\qwen2.5-0.5b-instruct-q4_k_m.gguf` and the
+project build dependencies installed, run:
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+The standalone executable is written to
+`dist\CO-BL-Predictor.exe`. It bundles the model and runtime dependencies; end
+users do not need to install Python or application packages. The one-file app
+extracts its bundled files to a temporary directory when it starts, so allow
+extra disk space for the executable and its temporary runtime files. This is a
+Windows-only build.
+
 ## Tests
 
 ```powershell

@@ -29,26 +29,22 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed with exit code $LASTEXITCODE."
 }
 
-$releaseDirectory = Join-Path $distDirectory "CO-BL-Predictor"
-$executable = Join-Path $releaseDirectory "CO-BL-Predictor.exe"
+$executable = Join-Path $distDirectory "CO-BL-Predictor.exe"
 if (-not (Test-Path $executable -PathType Leaf)) {
     throw "PyInstaller completed without creating the expected executable."
 }
 
-Copy-Item (Join-Path $projectRoot "README.md") $releaseDirectory
-Copy-Item (Join-Path $projectRoot "THIRD_PARTY_NOTICES.md") $releaseDirectory
-
-$releaseBytes = (
-    Get-ChildItem $releaseDirectory -File -Recurse |
-        Measure-Object -Property Length -Sum
-).Sum
+$releaseBytes = (Get-Item $executable).Length
 $smokeData = Join-Path $env:TEMP (
     "CO-BL-Predictor-smoke-" + [guid]::NewGuid().ToString("N")
 )
 $previousLocalAppData = $env:LOCALAPPDATA
 $previousSelfTestReport = $env:CO_BL_SELF_TEST_REPORT
 $previousPath = $env:PATH
-$selfTestMarker = Join-Path $releaseDirectory ".packaged-self-test"
+$selfTestMarker = Join-Path $distDirectory ".packaged-self-test"
+if (Test-Path $selfTestMarker) {
+    throw "Remove the existing packaged self-test marker before building: $selfTestMarker"
+}
 try {
     New-Item -ItemType Directory -Path $smokeData | Out-Null
     $env:LOCALAPPDATA = $smokeData
@@ -92,7 +88,6 @@ finally {
     }
 }
 
-Write-Output "Release directory: $releaseDirectory"
 Write-Output "Executable: $executable"
-Write-Output ("Total release size: {0:N2} GiB" -f ($releaseBytes / 1GB))
-Write-Output "Packaged model, config, and user-data smoke test: passed"
+Write-Output ("Executable size: {0:N2} GiB" -f ($releaseBytes / 1GB))
+Write-Output "Single-file executable model, config, inference, and user-data smoke test: passed"
