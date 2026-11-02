@@ -102,7 +102,56 @@ for candidate_query in analysis.generated_queries:
 
 The generated query includes the academic question. Review it before any
 external search; do not send private course material or examination questions
-to public search services.
+to public search services. The integrated `ResearchEngine` sanitizes this
+query before sending anything to DDGS, as described below.
+
+## Optional CO-specific web research
+
+`ResearchEngine` combines the syllabus-aware ranking, DDGS search, and webpage
+extraction services. It returns structured evidence grouped by candidate CO,
+including the search query, title, URL, snippet, extracted content when
+available, publication/retrieval dates, provider, relevance score, source
+quality hint, extraction status, and a safe internal extraction diagnostic.
+Source-quality hints prioritize likely
+university, academic, educational, or official-documentation domains; they do
+not verify that a source is accurate.
+
+The engine applies bounded query/result/page limits, filters low-relevance
+results, removes duplicate URLs within candidate results, caches successful
+search responses in memory, and reuses the extraction service's page cache.
+When the same URL is relevant to multiple candidate COs, each CO association
+is retained while the page is fetched only once per research run. DDGS errors
+are reported in the result status; a failed page keeps its search snippet.
+`ResearchWorker` runs the workflow off the GUI thread. Cancellation is checked
+between searches and during extraction; an in-progress DDGS call ends on its
+configured timeout.
+
+For privacy, the external DDGS query contains only caller-supplied technical
+concepts that locally match the candidate outcome, plus the cognitive action
+and generic academic terms. Supply only concepts suitable for public search.
+The question text, course identity, official CO description, and syllabus
+topics are used locally for ranking and are excluded from the external query.
+If no such concepts are supplied, that candidate is not searched. Web evidence
+is research context only and never assigns an institutional CO or changes
+local prediction.
+
+```python
+from src.research import ResearchEngine
+
+research = ResearchEngine(max_queries=3, results_per_query=5)
+evidence = research.research(
+    academic_question=question,
+    course_name=course.name,
+    course_code=course.code,
+    course_outcomes=reviewed_course_outcomes,
+    unit_topics=reviewed_unit_topics,
+    relevant_technical_concepts=technical_concepts,
+    detected_cognitive_action=cognitive_action,
+)
+for source in evidence.sources:
+    print(source.candidate_co_id, source.title, source.url)
+    print(source.extracted_content or source.search_snippet)
+```
 
 ## Build a portable Windows executable
 

@@ -28,6 +28,13 @@ from src.research.syllabus_query_generator import (
     SyllabusAwareQueryResult,
     SyllabusTopicMatch,
 )
+from src.research.research_engine import (
+    CandidateResearch,
+    ResearchEngine,
+    ResearchEngineResult,
+    ResearchSource,
+)
+from src.research.research_worker import ResearchWorker
 
 __all__ = [
     "ExtractedPage",
@@ -49,7 +56,12 @@ __all__ = [
     "WebSearchError",
     "SearchUnavailableError",
     "CourseOutcomeRanking",
+    "CandidateResearch",
     "GeneratedSearchQuery",
+    "ResearchEngine",
+    "ResearchEngineResult",
+    "ResearchSource",
+    "ResearchWorker",
     "SyllabusAwareQueryGenerator",
     "SyllabusAwareQueryResult",
     "SyllabusTopicMatch",
