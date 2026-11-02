@@ -35,8 +35,28 @@ from src.research.research_engine import (
     ResearchSource,
 )
 from src.research.research_worker import ResearchWorker
+from src.research.academic_evidence_analyzer import (
+    AcademicEvidenceAnalysisError,
+    AcademicEvidenceAnalyzer,
+    AcademicEvidenceReport,
+    CandidateCOAnalysis,
+    COEvidence,
+    EvidenceInferenceError,
+    EvidenceSourceReference,
+    InvalidEvidenceReferenceError,
+    MalformedEvidenceResponseError,
+)
 
 __all__ = [
+    "AcademicEvidenceAnalysisError",
+    "AcademicEvidenceAnalyzer",
+    "AcademicEvidenceReport",
+    "CandidateCOAnalysis",
+    "COEvidence",
+    "EvidenceInferenceError",
+    "EvidenceSourceReference",
+    "InvalidEvidenceReferenceError",
+    "MalformedEvidenceResponseError",
     "ExtractedPage",
     "InvalidResultURLError",
     "SearchBlockedError",
