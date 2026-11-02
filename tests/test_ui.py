@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pymupdf
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -582,6 +582,40 @@ def test_label_review_only_offers_saved_course_outcomes() -> None:
         dialog.bl_selector.itemText(index)
         for index in range(dialog.bl_selector.count())
     ] == ["BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"]
+
+
+def test_revised_label_review_offers_bl6() -> None:
+    get_application()
+
+    dialog = LabelReviewDialog(
+        "Create a network protocol.",
+        "CO5",
+        "BL6",
+        available_co_labels=("CO5",),
+        bl_scheme="revised_bl1_bl6",
+    )
+
+    assert dialog.bl_label == "BL6"
+    assert [
+        dialog.bl_selector.itemText(index)
+        for index in range(dialog.bl_selector.count())
+    ] == ["BL1", "BL2", "BL3", "BL4", "BL5", "BL6", "N/A"]
+
+
+def test_public_research_toggle_persists_in_local_settings(tmp_path) -> None:
+    get_application()
+    settings = QSettings(
+        str(tmp_path / "predictor-settings.ini"),
+        QSettings.Format.IniFormat,
+    )
+    window = MainWindow(settings=settings)
+
+    assert not window.web_research_toggle.isChecked()
+    window.web_research_toggle.setChecked(True)
+    assert settings.value("web_research_enabled", type=bool)
+
+    reopened_window = MainWindow(settings=settings)
+    assert reopened_window.web_research_toggle.isChecked()
 
 
 def test_create_course_action_connects_form_to_course_manager(monkeypatch) -> None:

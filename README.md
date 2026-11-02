@@ -238,9 +238,24 @@ hybrid = HybridPredictionEngine().predict(
 print(hybrid.format_output())
 ```
 
-This comparison layer has not been evaluated on institution-approved held-out
-data and is not connected to the prediction screen. Keep using the existing
-predictor until evaluation justifies any integration.
+The Predict page uses this layer after the existing local predictor. The
+“Include optional public research” checkbox is off by default and its setting
+is saved locally. When enabled, bounded DDGS research and page extraction run
+in the prediction worker; when disabled or unavailable, the local-only path
+continues and the UI reports that mode. Public search receives only
+privacy-filtered technical queries, not the complete question or syllabus.
+The existing local prediction record is retained, and the hybrid result is
+stored separately with its decision record and source metadata.
+
+On startup, existing version 4 databases are migrated to version 5 without
+deleting prediction history. The migration adds the separate hybrid-result
+table and Bloom-scheme metadata for reviewed labels. Revised BL1–BL6 labels
+remain distinguishable from the legacy custom BL0–BL5 labels in history and
+review.
+
+This integration has not been evaluated on institution-approved held-out
+data. Suggestions remain subject to faculty review; public search evidence
+cannot assign institutional CO numbers.
 
 ## Build a portable Windows executable
 

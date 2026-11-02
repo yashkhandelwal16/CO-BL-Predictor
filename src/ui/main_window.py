@@ -1,10 +1,11 @@
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QSize, Qt, QUrl
+from PySide6.QtCore import QByteArray, QSettings, QSize, Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QIcon, QPainter, QPixmap, QResizeEvent
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFrame,
     QFileDialog,
@@ -35,7 +36,7 @@ from src.courses.course_manager import (
 )
 from src.database.db_manager import DatabaseError, DatabaseManager
 from src.prediction.bloom_rules import load_bloom_config
-from src.prediction.prediction_worker import PredictionWorker
+from src.prediction.hybrid_prediction_worker import HybridPredictionWorker
 from src.syllabus.pdf_extractor import (
     PDFExtractionError,
     extract_syllabus,
@@ -62,7 +63,12 @@ class MainWindow(QMainWindow):
         ("History", "History"),
     )
 
-    def __init__(self, database_path: str | Path = ":memory:") -> None:
+    def __init__(
+        self,
+        database_path: str | Path = ":memory:",
+        *,
+        settings: QSettings | None = None,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("CO & BL Predictor")
         self.setMinimumSize(980, 640)
@@ -74,8 +80,13 @@ class MainWindow(QMainWindow):
         self._page_descriptions: list[QLabel] = []
         self.database = DatabaseManager(database_path)
         self.course_manager = CourseManager(self.database)
+        self.settings = (
+            settings
+            if settings is not None
+            else QSettings("CO-BL-Predictor", "CO-BL-Predictor")
+        )
         self.bloom_config = load_bloom_config()
-        self._prediction_worker: PredictionWorker | None = None
+        self._prediction_worker: HybridPredictionWorker | None = None
         self.page_stack = QStackedWidget()
 
         central_widget = QWidget()
@@ -426,6 +437,7 @@ class MainWindow(QMainWindow):
         self.predict_button.setEnabled(
             has_course and has_question and self._prediction_worker is None
         )
+        self.web_research_toggle.setEnabled(self._prediction_worker is None)
 
     def _selected_course_code(self) -> str | None:
         item = self.course_list.currentItem() if hasattr(self, "course_list") else None
@@ -701,6 +713,18 @@ class MainWindow(QMainWindow):
         self.question_input.setMaximumHeight(210)
         self.question_input.textChanged.connect(self._update_prediction_button)
 
+        self.web_research_toggle = QCheckBox("Include optional public research")
+        self.web_research_toggle.setToolTip(
+            "Search public sources for additional technical context. "
+            "Only relevant technical terms are sent."
+        )
+        self.web_research_toggle.setChecked(
+            self.settings.value("web_research_enabled", False, type=bool)
+        )
+        self.web_research_toggle.toggled.connect(
+            self._web_research_setting_changed
+        )
+
         self.predict_button = QPushButton("Predict CO and BL")
         self.predict_button.setObjectName("primaryButton")
         self.predict_button.setEnabled(False)
@@ -725,6 +749,7 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self.prediction_course_details)
         input_layout.addWidget(question_label)
         input_layout.addWidget(self.question_input)
+        input_layout.addWidget(self.web_research_toggle)
 
         input_scroll_area = QScrollArea()
         input_scroll_area.setObjectName("predictionInputScrollArea")
@@ -751,29 +776,39 @@ class MainWindow(QMainWindow):
             return
         self.prediction_result.clear()
         self.prediction_status.setText("Preparing a suggestion...")
-        worker = PredictionWorker(
+        worker = HybridPredictionWorker(
             self.database,
             course_id,
             question,
             self.bloom_config,
+            web_research_enabled=self.web_research_toggle.isChecked(),
         )
         worker.completed.connect(self._prediction_completed)
         worker.failed.connect(self._prediction_failed)
         worker.cancelled.connect(self._prediction_cancelled)
+        worker.progress.connect(self._prediction_progress)
         worker.finished.connect(self._prediction_worker_finished)
         self._prediction_worker = worker
         self._update_prediction_button()
         worker.start()
 
-    def _prediction_completed(self, formatted_result: str) -> None:
+    def _web_research_setting_changed(self, enabled: bool) -> None:
+        self.settings.setValue("web_research_enabled", enabled)
+
+    def _prediction_progress(self, message: str) -> None:
+        self.prediction_status.setText(message)
+
+    def _prediction_completed(
+        self,
+        formatted_result: str,
+        status_message: str = "Suggestion ready for faculty review.",
+    ) -> None:
         bold_lines = (
             f"<strong>{escape(line)}</strong>"
             for line in formatted_result.splitlines()
         )
         self.prediction_result.setText("<br>".join(bold_lines))
-        self.prediction_status.setText(
-            "Suggestion ready for faculty review."
-        )
+        self.prediction_status.setText(status_message)
         self.refresh_question_history()
 
     def _prediction_failed(self, message: str) -> None:
@@ -895,6 +930,11 @@ class MainWindow(QMainWindow):
             available_co_labels=(
                 tuple(course["course_outcomes"]) if course is not None else ()
             ),
+            bl_scheme=(
+                record.get("approved_bl_scheme")
+                or record.get("predicted_bl_scheme")
+                or "custom_bl0_bl5"
+            ),
             parent=self,
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -906,6 +946,11 @@ class MainWindow(QMainWindow):
             and (
                 dialog.co_label != record["predicted_co"]
                 or dialog.bl_label != record["predicted_bl"]
+                or dialog.bl_scheme
+                != (
+                    record.get("predicted_bl_scheme")
+                    or "custom_bl0_bl5"
+                )
             )
             else "approved"
         )
@@ -918,6 +963,7 @@ class MainWindow(QMainWindow):
                 review_status=review_status,
                 reviewed_by=dialog.reviewed_by or None,
                 review_note=dialog.review_note or None,
+                bl_scheme=dialog.bl_scheme,
             )
         except (DatabaseError, ValueError) as error:
             QMessageBox.critical(self, "Review could not be saved", str(error))

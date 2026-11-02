@@ -94,12 +94,18 @@ def _analysis(levels=("BL3",), *, co_uncertain=False, bl_uncertain=False):
     )
 
 
-def _example(co="CO1", bl="BL3", similarity=0.8):
+def _example(
+    co="CO1",
+    bl="BL3",
+    similarity=0.8,
+    bl_scheme="custom_bl0_bl5",
+):
     return SimilarApprovedExample(
         question_text="Analyze Dijkstra routing.",
         co_label=co,
         bl_label=bl,
         similarity=similarity,
+        bl_scheme=bl_scheme,
     )
 
 
@@ -194,7 +200,7 @@ def test_missing_web_results_do_not_prevent_local_evidence_decisions():
 
     assert result.co_label == "CO1"
     assert result.bl_label == "BL3"
-    assert result.decision_record.pipeline_mode == "hybrid"
+    assert result.decision_record.pipeline_mode == "local-only"
     assert not result.decision_record.sources_used
 
 
@@ -223,7 +229,9 @@ def test_approved_examples_can_support_bl_when_analysis_abstains():
         OUTCOMES,
         UNITS,
         academic_analysis=_analysis(levels=("N/A",), bl_uncertain=True),
-        faculty_approved_examples=[_example(bl="BL4")],
+        faculty_approved_examples=[
+            _example(bl="BL4", bl_scheme="revised_bl1_bl6")
+        ],
     )
 
     assert result.bl_label == "BL4"

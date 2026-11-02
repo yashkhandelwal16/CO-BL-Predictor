@@ -40,6 +40,7 @@ _STOP_WORDS = frozenset(
 
 PipelineMode = Literal["hybrid", "local-only"]
 PredictionStatus = Literal["predicted", "insufficient_context", "invalid_question"]
+BloomScheme = Literal["custom_bl0_bl5", "revised_bl1_bl6"]
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,14 @@ class DecisionSource:
     title: str
     url: str
     candidate_co_id: str
+    search_query: str | None = None
+    search_snippet: str | None = None
+    extracted_content: str | None = None
+    publication_date: str | None = None
+    retrieved_at: str | None = None
+    search_provider: str | None = None
+    extraction_status: str | None = None
+    source_quality: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +76,7 @@ class HybridPredictionResult:
     co_label: str
     bl_label: str
     status: PredictionStatus
+    bl_scheme: BloomScheme
     decision_record: HybridDecisionRecord
 
     def format_output(self) -> str:
@@ -142,10 +152,11 @@ class HybridPredictionEngine:
         mode: PipelineMode = (
             "hybrid"
             if (
-                prepared.rankings
-                or prepared.examples
-                or prepared.research_sources
-                or academic_analysis is not None
+                prepared.research_sources
+                or (
+                    academic_analysis is not None
+                    and academic_analysis.source_catalog
+                )
             )
             else "local-only"
         )
@@ -168,7 +179,20 @@ class HybridPredictionEngine:
                 pipeline_mode=mode,
             )
             return HybridPredictionResult(
-                "N/A", "N/A", "invalid_question", record
+                co_label="N/A",
+                bl_label="N/A",
+                status="invalid_question",
+                bl_scheme=(
+                    "revised_bl1_bl6"
+                    if academic_analysis is not None
+                    or any(
+                        example.bl_scheme == "revised_bl1_bl6"
+                        and example.similarity >= self.min_example_similarity
+                        for example in prepared.examples
+                    )
+                    else "custom_bl0_bl5"
+                ),
+                decision_record=record,
             )
 
         supports: list[str] = []
@@ -206,7 +230,22 @@ class HybridPredictionEngine:
             bl_abstention_reason=bl_abstention,
             pipeline_mode=mode,
         )
-        return HybridPredictionResult(co_label, bl_label, status, record)
+        return HybridPredictionResult(
+            co_label=co_label,
+            bl_label=bl_label,
+            status=status,
+            bl_scheme=(
+                "revised_bl1_bl6"
+                if academic_analysis is not None
+                or any(
+                    example.bl_scheme == "revised_bl1_bl6"
+                    and example.similarity >= self.min_example_similarity
+                    for example in prepared.examples
+                )
+                else "custom_bl0_bl5"
+            ),
+            decision_record=record,
+        )
 
     def _decide_co(
         self,
@@ -655,12 +694,25 @@ class HybridPredictionEngine:
                 example.bl_label, str
             ):
                 raise ValueError("Approved-example labels must be text.")
+            if example.bl_scheme not in {
+                "custom_bl0_bl5",
+                "revised_bl1_bl6",
+            }:
+                raise ValueError("An approved example has an invalid Bloom scheme.")
             if (
                 example.co_label not in outcomes
                 and example.co_label != "N/A"
             ):
                 continue
-            if example.bl_label not in _LEGACY_BL_LEVELS | {"BL0", "N/A"}:
+            if example.bl_label not in _BL_LEVELS | {"BL0", "N/A"}:
+                continue
+            if (
+                example.bl_scheme == "custom_bl0_bl5"
+                and example.bl_label == "BL6"
+            ) or (
+                example.bl_scheme == "revised_bl1_bl6"
+                and example.bl_label == "BL0"
+            ):
                 continue
             checked.append(example)
         return tuple(checked)
@@ -811,7 +863,9 @@ class HybridPredictionEngine:
             example.bl_label
             for example in evidence.examples
             if example.similarity >= self.min_example_similarity
-            and example.bl_label in _LEGACY_BL_LEVELS
+            and example.bl_label in _BL_LEVELS
+            and getattr(example, "bl_scheme", "custom_bl0_bl5")
+            == "revised_bl1_bl6"
         }
 
     @staticmethod
@@ -925,26 +979,59 @@ class HybridPredictionEngine:
         evidence: _PreparedEvidence,
         source_ids: set[str],
     ) -> tuple[DecisionSource, ...]:
-        sources = [
-            DecisionSource(
-                source_id=source.source_id,
-                title=source.title,
-                url=source.url,
-                candidate_co_id=source.candidate_co_id,
+        sources: list[DecisionSource] = []
+        for source in evidence.source_catalog:
+            if source.source_id not in source_ids:
+                continue
+            matched_research = next(
+                (
+                    item
+                    for item in evidence.research_sources
+                    if item.url.casefold() == source.url.casefold()
+                    and item.candidate_co_id == source.candidate_co_id
+                ),
+                None,
             )
-            for source in evidence.source_catalog
-            if source.source_id in source_ids
-        ]
-        sources.extend(
-            DecisionSource(
-                source_id=f"WEB-{index:04d}",
-                title=source.title,
-                url=source.url,
-                candidate_co_id=source.candidate_co_id,
+            sources.append(
+                DecisionSource(
+                    source_id=source.source_id,
+                    title=source.title,
+                    url=source.url,
+                    candidate_co_id=source.candidate_co_id,
+                    search_query=(
+                        matched_research.search_query
+                        if matched_research is not None
+                        else None
+                    ),
+                    search_snippet=source.search_snippet,
+                    extracted_content=source.extracted_content,
+                    publication_date=source.publication_date,
+                    retrieved_at=source.retrieved_at,
+                    search_provider=source.search_provider,
+                    extraction_status=source.extraction_status,
+                    source_quality=source.source_quality,
+                )
             )
-            for index, source in enumerate(evidence.research_sources, start=1)
-            if f"WEB-{index:04d}" in source_ids
-        )
+        for index, source in enumerate(evidence.research_sources, start=1):
+            source_id = f"WEB-{index:04d}"
+            if source_id not in source_ids:
+                continue
+            sources.append(
+                DecisionSource(
+                    source_id=source_id,
+                    title=source.title,
+                    url=source.url,
+                    candidate_co_id=source.candidate_co_id,
+                    search_query=source.search_query,
+                    search_snippet=source.search_snippet,
+                    extracted_content=source.extracted_content,
+                    publication_date=source.publication_date,
+                    retrieved_at=source.retrieved_at,
+                    search_provider=source.search_provider,
+                    extraction_status=source.extraction_status,
+                    source_quality=source.source_quality,
+                )
+            )
         return tuple(sources)
 
     @staticmethod
