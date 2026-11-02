@@ -50,8 +50,59 @@ for result in results:
 DDGS backends and region, safe-search, time-limit, result-count, and timeout
 options can be configured through `WebSearchService`. Searches require an
 internet connection and may be limited or blocked by search providers. No
-automatic retries are made. Webpage extraction is an explicit, separate call
-and only permits public HTTP(S) destinations.
+automatic retries are made. Webpage extraction is a separate, optional
+operation:
+
+```python
+from src.research import WebContentExtractionService
+
+extractor = WebContentExtractionService(max_pages=3)
+pages = extractor.extract_results(results)
+for page in pages:
+    print(page.title, page.url, page.extraction_status)
+    if page.extraction_status in {"success", "cached"}:
+        print(page.content)
+    else:
+        print(page.snippet)  # Original search-result fallback
+```
+
+Extraction checks `robots.txt`, accepts only public HTTP(S) destinations, and
+revalidates every redirect. Connections are pinned to a resolved public IP
+while HTTPS hostname and certificate verification remain enabled. Pages are
+limited by count, timeout, response size, and an in-memory successful-result
+cache. Failed, blocked, invalid, or unreadable pages retain their original
+search title, URL, and snippet with a status and internal diagnostic. The
+standalone `WebContentExtractionWorker` can run this work away from the GUI
+thread. Neither search nor extraction is connected to question prediction.
+
+## Optional syllabus-aware query generation
+
+`SyllabusAwareQueryGenerator` uses the existing local TF-IDF/cosine helper,
+concept overlap, and reviewed unit topics to rank only the course outcomes
+provided by its caller. It returns ranked evidence, plausible CO candidates,
+candidate-specific search queries, and a reason for each query. It does not
+assign outcomes from web results, change official CO descriptions, call a
+search provider, or alter prediction behavior.
+
+```python
+from src.research import SyllabusAwareQueryGenerator
+
+analysis = SyllabusAwareQueryGenerator().generate(
+    academic_question=question,
+    course_name=course.name,
+    course_code=course.code,
+    course_outcomes=reviewed_course_outcomes,
+    unit_topics=reviewed_unit_topics,
+    relevant_technical_concepts=technical_concepts,
+    detected_cognitive_action=cognitive_action,
+)
+for candidate_query in analysis.generated_queries:
+    print(candidate_query.co_id, candidate_query.query, candidate_query.reason)
+```
+
+The generated query includes the academic question. Review it before any
+external search; do not send private course material or examination questions
+to public search services.
 
 ## Build a portable Windows executable
 

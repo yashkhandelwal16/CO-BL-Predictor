@@ -1,20 +1,32 @@
 from src.research.web_search import (
-    ExtractedPage,
     InvalidResultURLError,
     SearchBlockedError,
     SearchRateLimitError,
     SearchResponseError,
     SearchResult,
     SearchTimeoutError,
-    WebPageError,
+    WebSearchError,
+    SearchUnavailableError,
+    WebSearchService,
+)
+from src.research.web_content_extraction import (
+    ExtractedPage,
+    WebContentError,
+    WebContentExtractionService,
+    WebContentResult,
     WebPageBlockedError,
     WebPageExtractionError,
     WebPageTimeoutError,
     WebPageTooLargeError,
     WebPageUnavailableError,
-    WebSearchError,
-    SearchUnavailableError,
-    WebSearchService,
+)
+from src.research.web_content_worker import WebContentExtractionWorker
+from src.research.syllabus_query_generator import (
+    CourseOutcomeRanking,
+    GeneratedSearchQuery,
+    SyllabusAwareQueryGenerator,
+    SyllabusAwareQueryResult,
+    SyllabusTopicMatch,
 )
 
 __all__ = [
@@ -25,7 +37,10 @@ __all__ = [
     "SearchResponseError",
     "SearchResult",
     "SearchTimeoutError",
-    "WebPageError",
+    "WebContentError",
+    "WebContentExtractionService",
+    "WebContentExtractionWorker",
+    "WebContentResult",
     "WebPageBlockedError",
     "WebPageExtractionError",
     "WebPageTimeoutError",
@@ -33,5 +48,10 @@ __all__ = [
     "WebPageUnavailableError",
     "WebSearchError",
     "SearchUnavailableError",
+    "CourseOutcomeRanking",
+    "GeneratedSearchQuery",
+    "SyllabusAwareQueryGenerator",
+    "SyllabusAwareQueryResult",
+    "SyllabusTopicMatch",
     "WebSearchService",
 ]

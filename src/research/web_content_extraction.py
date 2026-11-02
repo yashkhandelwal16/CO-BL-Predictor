@@ -1,7 +1,5 @@
 import ipaddress
 import math
-import re
-import socket
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
@@ -71,6 +69,7 @@ class ExtractedPage:
     publication_date: str | None = None
     source: str | None = None
     metadata: Mapping[str, object] = field(default_factory=dict)
+    retrieved_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -90,25 +89,37 @@ class WebContentResult:
 
 
 @dataclass(frozen=True)
+class _DownloadResponse:
+    body: bytes | None
+    url: str
+    redirect_url: str | None = None
+
+
+@dataclass(frozen=True)
 class _CacheEntry:
     page: ExtractedPage
     expires_at: float
 
 
 class _PinnedAddressAdapter(HTTPAdapter):
-    """Connect to a previously validated IP while retaining HTTPS host checks."""
+    """Pin the connection IP while preserving the original TLS hostname."""
 
-    def __init__(self, tls_hostname: str, **kwargs: Any) -> None:
-        self._tls_hostname = tls_hostname
+    def __init__(self, address: str, hostname: str, **kwargs: Any) -> None:
+        self._address = address
+        self._hostname = hostname
         super().__init__(**kwargs)
+
+    def matches(self, address: str, hostname: str) -> bool:
+        return self._address == address and self._hostname == hostname
 
     def build_connection_pool_key_attributes(self, request, verify, cert):
         host_params, pool_kwargs = super().build_connection_pool_key_attributes(
             request, verify, cert
         )
-        if urlsplit(request.url).scheme == "https":
-            pool_kwargs["server_hostname"] = self._tls_hostname
-            pool_kwargs["assert_hostname"] = self._tls_hostname
+        host_params["host"] = self._address
+        if host_params["scheme"] == "https":
+            pool_kwargs["server_hostname"] = self._hostname
+            pool_kwargs["assert_hostname"] = self._hostname
         return host_params, pool_kwargs
 
 
@@ -119,7 +130,7 @@ MetadataExtractor = Callable[..., object]
 
 
 class WebContentExtractionService:
-    """Safely extract selected public search results without requiring the UI."""
+    """Safely extract a bounded set of public search results."""
 
     def __init__(
         self,
@@ -160,7 +171,7 @@ class WebContentExtractionService:
         *,
         cancellation_event: Event | None = None,
     ) -> list[WebContentResult]:
-        """Extract a bounded set while retaining search-result fallbacks."""
+        """Extract pages while preserving the original search result on failure."""
         if isinstance(results, (str, bytes)) or not isinstance(results, Sequence):
             raise ValueError("Search results must be provided as a sequence.")
 
@@ -170,35 +181,30 @@ class WebContentExtractionService:
         for result in results:
             if not isinstance(result, SearchResult):
                 raise ValueError("Each webpage must come from a validated search result.")
+            if cancellation_event is not None and cancellation_event.is_set():
+                output.append(self._fallback(result, "cancelled"))
+                continue
 
             try:
                 normalized_url = normalize_http_url(result.url)
-                self._validate_destination(normalized_url)
             except Exception as error:
                 output.append(self._fallback(result, "failed", error))
                 continue
 
-            key = normalized_url
-            if key in seen:
-                previous = seen[key]
-                output.append(
-                    self._with_search_result(previous, result, "cached")
-                )
+            if normalized_url in seen:
+                output.append(self._duplicate_result(seen[normalized_url], result))
                 continue
 
-            cached = self._get_cached(key)
+            cached = self._get_cached(normalized_url)
             if cached is not None:
                 extracted = self._success(result, cached, "cached")
-                seen[key] = extracted
+                seen[normalized_url] = extracted
                 output.append(extracted)
                 continue
 
-            if cancellation_event is not None and cancellation_event.is_set():
-                output.append(self._fallback(result, "cancelled"))
-                continue
             if attempted_pages >= self.max_pages:
                 skipped = self._fallback(result, "skipped")
-                seen[key] = skipped
+                seen[normalized_url] = skipped
                 output.append(skipped)
                 continue
 
@@ -207,13 +213,13 @@ class WebContentExtractionService:
                 page = self._extract_one(normalized_url)
             except Exception as error:
                 failed = self._fallback(result, "failed", error)
-                seen[key] = failed
+                seen[normalized_url] = failed
                 output.append(failed)
                 continue
 
-            self._put_cached(key, page)
+            self._put_cached(normalized_url, page)
             extracted = self._success(result, page, "success")
-            seen[key] = extracted
+            seen[normalized_url] = extracted
             output.append(extracted)
 
         return output
@@ -225,13 +231,7 @@ class WebContentExtractionService:
     def _extract_one(self, url: str) -> ExtractedPage:
         with self._session_factory() as session:
             self._prepare_session(session)
-            final_url = self._check_robots_and_get_final_url(session, url)
-            html, final_url = self._download(
-                session,
-                final_url,
-                max_bytes=self.max_response_bytes,
-                require_html=True,
-            )
+            html, final_url = self._fetch_page(session, url)
 
         try:
             content = self._page_extractor(
@@ -255,90 +255,79 @@ class WebContentExtractionService:
             ) from error
 
         details: dict[str, object] = {}
-        for name in (
-            "author",
-            "date",
-            "description",
-            "sitename",
-            "categories",
-            "tags",
-        ):
+        for name in ("author", "date", "description", "sitename", "categories", "tags"):
             value = getattr(metadata, name, None)
             if value:
                 details[name] = value
         title = getattr(metadata, "title", None)
         source = getattr(metadata, "sitename", None)
-        publication_date = self._normalize_publication_date(
-            getattr(metadata, "date", None)
-        )
         return ExtractedPage(
             url=final_url,
             text=content.strip(),
             title=title.strip() if isinstance(title, str) and title.strip() else None,
-            publication_date=publication_date,
+            publication_date=self._normalize_publication_date(
+                getattr(metadata, "date", None)
+            ),
             source=source.strip() if isinstance(source, str) and source.strip() else None,
             metadata=details,
+            retrieved_at=self._timestamp(),
         )
 
-    def _check_robots_and_get_final_url(
-        self, session: requests.Session, url: str
-    ) -> str:
-        current_url = url
+    def _fetch_page(
+        self, session: requests.Session, initial_url: str
+    ) -> tuple[bytes, str]:
+        current_url = initial_url
         for redirect_count in range(MAX_REDIRECTS + 1):
-            parsed = urlsplit(current_url)
-            robots_url = urlunsplit(
-                (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
-            )
-            parser = self._robots_for_url(session, robots_url)
+            parser = self._robots_for_url(session, current_url)
             if not parser.can_fetch(USER_AGENT, current_url):
                 raise WebPageBlockedError(
                     "The website's robots policy disallows content extraction."
                 )
 
-            final_url = self._download(
+            response = self._download(
                 session,
                 current_url,
                 max_bytes=self.max_response_bytes,
                 require_html=True,
-                follow_redirects=False,
-                return_redirect=True,
             )
-            if isinstance(final_url, tuple):
-                _, location = final_url
+            if response.redirect_url is not None:
                 if redirect_count == MAX_REDIRECTS:
-                    raise WebPageBlockedError(
-                        "The webpage redirected too many times."
-                    )
-                current_url = normalize_http_url(urljoin(current_url, location))
+                    raise WebPageBlockedError("The webpage redirected too many times.")
+                current_url = normalize_http_url(response.redirect_url)
                 self._validate_destination(current_url)
                 continue
-            return current_url
+            if response.body is None:
+                raise WebPageUnavailableError("The webpage returned no content.")
+            return response.body, response.url
         raise WebPageBlockedError("The webpage could not be reached.")
 
     def _robots_for_url(
-        self, session: requests.Session, robots_url: str
+        self, session: requests.Session, page_url: str
     ) -> RobotFileParser:
-        parsed = urlsplit(robots_url)
-        cache_key = f"{parsed.scheme}://{parsed.netloc}"
+        parsed = urlsplit(page_url)
+        origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+        cache_key = origin.casefold()
         with self._robots_lock:
             cached = self._robots_cache.get(cache_key)
             now = self._clock()
             if cached is not None and cached[0] > now:
                 return cached[1]
 
+            robots_url = urlunsplit(
+                (parsed.scheme, parsed.netloc, "/robots.txt", "", "")
+            )
+            response = self._download(
+                session,
+                robots_url,
+                max_bytes=min(self.max_response_bytes, MAX_ROBOTS_BYTES),
+                require_html=False,
+                allow_missing=True,
+                follow_redirects=True,
+            )
             parser = RobotFileParser()
             parser.set_url(robots_url)
-            try:
-                body, _ = self._download(
-                    session,
-                    robots_url,
-                    max_bytes=min(self.max_response_bytes, MAX_ROBOTS_BYTES),
-                    require_html=False,
-                    allow_missing=True,
-                )
-                parser.parse(body.decode("utf-8", errors="replace").splitlines())
-            except WebPageUnavailableError:
-                parser.parse([])
+            body = response.body or b""
+            parser.parse(body.decode("utf-8", errors="replace").splitlines())
             self._robots_cache[cache_key] = (
                 now + min(self.cache_seconds, 3600),
                 parser,
@@ -353,28 +342,27 @@ class WebContentExtractionService:
         max_bytes: int,
         require_html: bool,
         allow_missing: bool = False,
-        follow_redirects: bool = True,
-        return_redirect: bool = False,
-    ) -> tuple[bytes, str] | tuple[str, str] | bytes:
+        follow_redirects: bool = False,
+    ) -> _DownloadResponse:
         current_url = initial_url
         redirect_limit = MAX_REDIRECTS if follow_redirects else 0
         for redirect_count in range(redirect_limit + 1):
-            parsed = urlsplit(current_url)
-            host = parsed.hostname
-            if host is None:
-                raise InvalidResultURLError("The result URL is invalid.")
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
             address = self._validate_destination(current_url)
-            request_url = self._url_with_address(current_url, address)
-            request_headers = {"User-Agent": USER_AGENT}
-            request_headers["Host"] = self._host_header(parsed)
+            parsed = urlsplit(current_url)
+            hostname = parsed.hostname
+            if hostname is None:
+                raise InvalidResultURLError("The result URL is invalid.")
+            origin = urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
+            self._mount_pinned_adapter(
+                session, current_url, origin, address, hostname
+            )
             try:
                 response = session.get(
-                    request_url,
+                    current_url,
                     timeout=self.timeout_seconds,
                     stream=True,
                     allow_redirects=False,
-                    headers=request_headers,
+                    headers={"User-Agent": USER_AGENT},
                 )
             except requests.Timeout as error:
                 raise WebPageTimeoutError(
@@ -396,21 +384,22 @@ class WebContentExtractionService:
                         raise WebPageBlockedError(
                             "The webpage redirected without a destination."
                         )
-                    if return_redirect:
-                        return current_url, location
+                    destination = normalize_http_url(urljoin(current_url, location))
+                    self._validate_destination(destination)
+                    if not follow_redirects:
+                        return _DownloadResponse(
+                            body=None, url=current_url, redirect_url=destination
+                        )
                     if redirect_count == redirect_limit:
                         raise WebPageBlockedError(
                             "The webpage redirected too many times."
                         )
-                    current_url = normalize_http_url(
-                        urljoin(current_url, location)
-                    )
-                    self._validate_destination(current_url)
+                    current_url = destination
                     continue
-                if response.status_code == 404 and allow_missing:
-                    return b""
+                if allow_missing and response.status_code in {404, 410}:
+                    return _DownloadResponse(body=b"", url=current_url)
                 if response.status_code in {401, 403, 429} or (
-                    response.status_code >= 500 and allow_missing
+                    allow_missing and response.status_code >= 500
                 ):
                     raise WebPageBlockedError(
                         "The website blocked the content extraction request."
@@ -456,16 +445,36 @@ class WebContentExtractionService:
                     raise WebPageUnavailableError(
                         "The webpage could not be downloaded completely."
                     ) from error
-                if not require_html:
-                    return bytes(body)
-                return bytes(body), current_url
+                return _DownloadResponse(body=bytes(body), url=current_url)
         raise WebPageBlockedError("The webpage could not be reached.")
 
-    def _prepare_session(self, session: requests.Session) -> None:
+    @staticmethod
+    def _prepare_session(session: requests.Session) -> None:
         if isinstance(session, requests.Session):
             session.trust_env = False
+            session.proxies.clear()
 
-    def _validate_destination(self, url: str) -> str:
+    @staticmethod
+    def _mount_pinned_adapter(
+        session: requests.Session,
+        url: str,
+        origin: str,
+        address: str,
+        hostname: str,
+    ) -> None:
+        if hasattr(session, "get_adapter"):
+            existing = session.get_adapter(url)
+            if isinstance(existing, _PinnedAddressAdapter):
+                if existing.matches(address, hostname):
+                    return
+                existing.close()
+        session.mount(
+            origin,
+            _PinnedAddressAdapter(address=address, hostname=hostname),
+        )
+
+    @staticmethod
+    def _validate_destination(url: str) -> str:
         normalized = normalize_http_url(url)
         parsed = urlsplit(normalized)
         host = parsed.hostname
@@ -480,28 +489,6 @@ class WebContentExtractionService:
             raise WebPageUnavailableError(
                 "The webpage address could not be resolved."
             ) from error
-
-    @staticmethod
-    def _url_with_address(url: str, address: str) -> str:
-        parsed = urlsplit(url)
-        try:
-            ip = ipaddress.ip_address(address)
-        except ValueError as error:
-            raise InvalidResultURLError("The result URL is invalid.") from error
-        host = f"[{ip}]" if ip.version == 6 else str(ip)
-        netloc = f"{host}:{parsed.port}" if parsed.port is not None else host
-        return urlunsplit(
-            (parsed.scheme, netloc, parsed.path, parsed.query, "")
-        )
-
-    @staticmethod
-    def _host_header(parsed) -> str:
-        host = parsed.hostname or ""
-        if ":" in host:
-            host = f"[{host}]"
-        if parsed.port is not None:
-            host = f"{host}:{parsed.port}"
-        return host
 
     @staticmethod
     def _normalize_publication_date(value: object) -> str | None:
@@ -554,7 +541,7 @@ class WebContentExtractionService:
             source=page.source or result.source,
             metadata=metadata,
             publication_date=page.publication_date,
-            retrieved_at=WebContentExtractionService._timestamp(),
+            retrieved_at=page.retrieved_at,
             extraction_status=status,
         )
 
@@ -566,9 +553,8 @@ class WebContentExtractionService:
     ) -> WebContentResult:
         error_details = None
         if error is not None:
-            error_details = (
-                f"{type(error).__name__}: {str(error) or 'Extraction failed.'}"
-            )
+            message = str(error) or "Extraction failed."
+            error_details = f"{type(error).__name__}: {message[:500]}"
         return WebContentResult(
             title=result.title,
             url=result.url,
@@ -582,23 +568,33 @@ class WebContentExtractionService:
             error_details=error_details,
         )
 
-    @staticmethod
-    def _with_search_result(
-        cached: WebContentResult,
-        result: SearchResult,
-        status: Literal["cached"],
+    @classmethod
+    def _duplicate_result(
+        cls, previous: WebContentResult, result: SearchResult
     ) -> WebContentResult:
+        if previous.extraction_status in {"success", "cached"}:
+            return WebContentResult(
+                title=previous.title,
+                url=result.url,
+                snippet=result.snippet,
+                content=previous.content,
+                source=previous.source or result.source,
+                metadata={**result.metadata, **previous.metadata},
+                publication_date=previous.publication_date,
+                retrieved_at=previous.retrieved_at,
+                extraction_status="cached",
+            )
         return WebContentResult(
-            title=cached.title if cached.extraction_status != "failed" else result.title,
+            title=result.title,
             url=result.url,
             snippet=result.snippet,
-            content=cached.content,
-            source=cached.source or result.source,
-            metadata={**result.metadata, **cached.metadata},
-            publication_date=cached.publication_date,
-            retrieved_at=WebContentExtractionService._timestamp(),
-            extraction_status=status,
-            error_details=cached.error_details,
+            content=result.snippet,
+            source=result.source,
+            metadata=dict(result.metadata),
+            publication_date=None,
+            retrieved_at=cls._timestamp(),
+            extraction_status=previous.extraction_status,
+            error_details=previous.error_details,
         )
 
     @staticmethod

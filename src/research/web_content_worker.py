@@ -1,3 +1,4 @@
+import logging
 from threading import Event
 from typing import Sequence
 
@@ -8,6 +9,9 @@ from src.research.web_content_extraction import (
     WebContentResult,
 )
 from src.research.web_search import SearchResult
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WebContentExtractionWorker(QThread):
@@ -36,8 +40,10 @@ class WebContentExtractionWorker(QThread):
                 cancellation_event=self._cancellation_event,
             )
         except (TypeError, ValueError):
+            _LOGGER.exception("Webpage extraction worker received invalid input.")
             self.failed.emit("Webpage extraction could not be started.")
         except Exception:
+            _LOGGER.exception("Webpage extraction worker failed.")
             self.failed.emit("Webpage extraction could not be completed.")
         else:
             self.completed.emit(results)
