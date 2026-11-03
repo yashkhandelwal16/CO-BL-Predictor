@@ -100,13 +100,23 @@ def test_prediction_formats_only_the_two_required_lines_and_persists_metadata(
     assert len(client.messages) == 2
     assert "CO1:" in client.messages[0][0][1]["content"]
     assert "CO4:" in client.messages[0][0][1]["content"]
-    assert "TF-IDF similarity scores" in client.messages[0][0][1]["content"]
+    assert '"label":"CO1"' not in client.messages[0][0][1]["content"]
+    assert "do not default to the first outcome" in client.messages[0][0][0]["content"]
+    assert client.messages[0][1]["response_format"]["schema"]["properties"][
+        "label"
+    ]["enum"] == ["CO1", "CO2", "CO3", "CO4", "N/A"]
     assert "Unit 1: Routing" in client.messages[0][0][1]["content"]
     assert "Unit 2: Data link layer" not in client.messages[0][0][1]["content"]
     assert "Never answer" in client.messages[0][0][0]["content"]
     assert "BL1 (Remember)" in client.messages[1][0][1]["content"]
     assert "BL5 (Evaluate)" in client.messages[1][0][1]["content"]
-    assert "Keyword matches are evidence only" in client.messages[1][0][0]["content"]
+    assert '"label":"BL3"' not in client.messages[1][0][1]["content"]
+    assert client.messages[1][1]["response_format"]["schema"]["properties"][
+        "label"
+    ]["enum"] == ["BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"]
+    assert "BL1 Remember: recall a fact" in client.messages[1][0][1]["content"]
+    assert "BL4 Analyze: compare approaches" in client.messages[1][0][1]["content"]
+    assert "BL5 Evaluate: judge against criteria" in client.messages[1][0][1]["content"]
 
     history = database.list_question_history()
     assert len(history) == 1
@@ -451,7 +461,8 @@ def test_unlinked_syllabus_is_not_used_as_reviewed_course_context(tmp_path):
 
     assert result.syllabus_version_id is None
     prompt = client.messages[0][0][1]["content"]
-    assert "No relevant reviewed syllabus topics were found." in prompt
+    assert "OTHER" not in prompt
+    assert "No relevant reviewed syllabus topics were found." not in prompt
     assert "Routing algorithms" not in prompt
     database.close()
 

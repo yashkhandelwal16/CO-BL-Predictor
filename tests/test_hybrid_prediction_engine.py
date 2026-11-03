@@ -161,7 +161,7 @@ def test_official_course_context_takes_priority_and_records_disagreement():
     assert any("higher-priority" in item for item in result.decision_record.conflicting_evidence)
 
 
-def test_tied_multiple_co_candidates_abstain_instead_of_using_qwen_as_tie_breaker():
+def test_tied_multiple_co_candidates_fall_back_to_valid_qwen_prediction():
     result = HybridPredictionEngine().predict(
         QUESTION,
         OUTCOMES,
@@ -170,8 +170,9 @@ def test_tied_multiple_co_candidates_abstain_instead_of_using_qwen_as_tie_breake
         nlp_candidate_co_rankings=[_ranking("CO1", 0.62), _ranking("CO2", 0.60)],
     )
 
-    assert result.co_label == "N/A"
-    assert result.decision_record.co_abstention_reason
+    assert result.co_label == "CO1"
+    assert result.decision_record.co_abstention_reason is None
+    assert any("local Qwen prediction selected CO1" in item for item in result.decision_record.supporting_evidence)
     assert any("similarly ranked" in item for item in result.decision_record.conflicting_evidence)
 
 

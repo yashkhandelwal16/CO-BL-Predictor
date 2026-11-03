@@ -342,6 +342,21 @@ class HybridPredictionEngine:
             return example_label, None
 
         if nlp_contested or examples_contested:
+            if (
+                not examples_contested
+                and local_prediction is not None
+                and local_prediction.co_label in evidence.outcomes
+            ):
+                co_label = local_prediction.co_label
+                supports.append(
+                    f"Official course-context rankings are tied; the existing "
+                    f"local Qwen prediction selected {co_label} and was retained."
+                )
+                self._record_co_analysis(analysis, co_label, supports, conflicts)
+                self._record_co_sources(
+                    evidence, co_label, supports, conflicts, source_ids
+                )
+                return co_label, None
             self._record_co_sources(
                 evidence, None, supports, conflicts, source_ids
             )
