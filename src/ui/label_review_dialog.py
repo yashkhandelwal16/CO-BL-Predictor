@@ -21,6 +21,7 @@ class LabelReviewDialog(QDialog):
         approved_co: str | None = None,
         approved_bl: str | None = None,
         available_co_labels: tuple[str, ...] | None = None,
+        bl_scheme: str = "custom_bl0_bl5",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -52,9 +53,13 @@ class LabelReviewDialog(QDialog):
             ]
         )
         self.bl_selector = QComboBox()
-        self.bl_selector.addItems(
-            ["BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"]
+        self.bl_scheme = bl_scheme
+        bl_labels = (
+            ["BL1", "BL2", "BL3", "BL4", "BL5", "BL6", "N/A"]
+            if bl_scheme == "revised_bl1_bl6"
+            else ["BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"]
         )
+        self.bl_selector.addItems(bl_labels)
         self.reviewer_input = QLineEdit()
         self.reviewer_input.setPlaceholderText("Optional")
         self.review_note_input = QTextEdit()

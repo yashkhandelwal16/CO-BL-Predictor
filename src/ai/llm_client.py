@@ -24,6 +24,7 @@ class _ChatModel(Protocol):
         max_tokens: int,
         temperature: float,
         stream: bool,
+        response_format: dict[str, Any] | None = None,
     ) -> Iterator[dict[str, Any]]: ...
 
 
@@ -181,6 +182,7 @@ class LLMClient:
         timeout_seconds: float | None = None,
         cancellation_event: Event | None = None,
         on_token: Callable[[str], None] | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> str:
         """Generate local chat text, checking cancellation between output tokens.
 
@@ -210,11 +212,16 @@ class LLMClient:
             if model is None:
                 raise ModelLoadError("The local model did not finish loading.")
             try:
+                completion_options: dict[str, Any] = {
+                    "messages": normalized_messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": True,
+                }
+                if response_format is not None:
+                    completion_options["response_format"] = response_format
                 chunks = model.create_chat_completion(
-                    messages=normalized_messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    stream=True,
+                    **completion_options,
                 )
                 return self._collect_stream(
                     chunks,

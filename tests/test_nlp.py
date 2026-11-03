@@ -1,6 +1,18 @@
 from src.courses.course_manager import COURSE_OUTCOME_IDS, CourseManager
 from src.database.db_manager import DatabaseManager
-from src.nlp.text_preprocessor import ApprovedExampleRetriever
+from src.nlp.text_preprocessor import (
+    ApprovedExampleRetriever,
+    normalize_academic_term,
+)
+
+
+def test_normalize_academic_term_matches_regular_plurals_without_changing_singulars():
+    assert normalize_academic_term("classes") == "class"
+    assert normalize_academic_term("objects") == "object"
+    assert normalize_academic_term("policies") == "policy"
+    assert normalize_academic_term("class") == "class"
+    assert normalize_academic_term("analysis") == "analysis"
+    assert normalize_academic_term("bus") == "bus"
 
 
 def _outcomes() -> dict[str, str]:
