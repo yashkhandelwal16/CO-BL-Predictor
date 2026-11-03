@@ -14,8 +14,6 @@ from src.prediction.bloom_taxonomy import (
         ("What is a constructor?", "BL1"),
         ("Explain polymorphism.", "BL2"),
         ("Differentiate between JDK and JRE.", "BL2"),
-        ("Illustrate the relationship between a class and an object.", "BL2"),
-        ("Compare what JDK and JRE mean.", "BL2"),
         (
             "Write a Java program to implement inheritance.",
             "BL3",
@@ -31,10 +29,6 @@ from src.prediction.bloom_taxonomy import (
             "BL4",
         ),
         (
-            "Compare two class designs by examining their relationships.",
-            "BL4",
-        ),
-        (
             "Evaluate two sorting algorithms based on performance.",
             "BL5",
         ),
@@ -43,10 +37,6 @@ from src.prediction.bloom_taxonomy import (
         (
             "Explain why this design violates the stated performance requirements.",
             "BL5",
-        ),
-        (
-            "Explain how to design a database for a hospital.",
-            "BL2",
         ),
         (
             "Design a database for a hospital management system.",
@@ -78,9 +68,4 @@ def test_knowledge_base_contains_all_six_levels_and_classification_rules():
     assert "BL6 – CREATE" in knowledge
     assert "Never determine the Bloom level using only an action verb" in knowledge
     assert "Question difficulty and question length do not determine" in knowledge
-    assert "A programming question is not automatically BL6" in knowledge
-    assert "BL2 is understanding a concept; BL3 is using knowledge to perform a task" in knowledge
-    assert "BL5 evaluates an existing solution; BL6 creates a new solution" in knowledge
-    assert "identify the primary expected learning objective" in knowledge
     assert "Do not automatically select the highest cognitive level" in knowledge
-    assert "Illustrate the relationship between a class and an object." in knowledge

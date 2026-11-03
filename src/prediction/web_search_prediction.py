@@ -8,7 +8,6 @@ from src.prediction.bloom_taxonomy import (
     detect_cognitive_action,
 )
 from src.research.research_engine import ResearchEngine, ResearchEngineResult
-from src.research.syllabus_query_generator import SyllabusAwareQueryGenerator
 
 
 _TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
@@ -47,9 +46,6 @@ class WebSearchPredictionService:
             results_per_query=5,
             max_sources_per_co=3,
             max_pages_to_extract=2,
-            query_generator=SyllabusAwareQueryGenerator(
-                min_co_similarity=0.001
-            ),
         )
 
     def predict(
@@ -86,21 +82,19 @@ class WebSearchPredictionService:
             cancellation_event=cancellation_event,
         )
         bl_label = classify_bloom_level(question)
-        co_label, used_syllabus_fallback = self._select_course_outcome(research)
+        co_label = self._select_course_outcome(research)
         return WebSearchPredictionResult(
             co_label=co_label,
             bl_label=bl_label,
-            status_message=self._status_message(
-                research, co_label, used_syllabus_fallback
-            ),
+            status_message=self._status_message(research, co_label),
         )
 
     @classmethod
     def _select_course_outcome(
         cls, research: ResearchEngineResult
-    ) -> tuple[str, bool]:
+    ) -> str:
         if research.status == "cancelled":
-            return "N/A", False
+            return "N/A"
 
         scores: dict[str, float] = {}
         for source in research.sources:
@@ -109,65 +103,29 @@ class WebSearchPredictionService:
                 source.relevance_score,
             )
         ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))
-        if ranked and ranked[0][1] >= MIN_CO_EVIDENCE_SCORE and not (
+        if not ranked or ranked[0][1] < MIN_CO_EVIDENCE_SCORE:
+            return "N/A"
+        if (
             len(ranked) > 1
             and ranked[0][1] - ranked[1][1] < MIN_CO_EVIDENCE_MARGIN
         ):
-            return ranked[0][0], False
-
-        query_analysis = getattr(research, "query_analysis", None)
-        syllabus_rankings = getattr(query_analysis, "co_rankings", ())
-        if not syllabus_rankings:
-            return "N/A", False
-        outcome_rankings = sorted(
-            syllabus_rankings,
-            key=lambda ranking: (-ranking.similarity, ranking.co_id),
-        )
-        if outcome_rankings[0].similarity <= 0:
-            return "N/A", False
-        return outcome_rankings[0].co_id, True
+            return "N/A"
+        return ranked[0][0]
 
     @staticmethod
     def _status_message(
-        research: ResearchEngineResult,
-        co_label: str,
-        used_syllabus_fallback: bool = False,
+        research: ResearchEngineResult, co_label: str
     ) -> str:
         if research.status == "search_unavailable":
-            if used_syllabus_fallback:
-                return (
-                    "Web search is unavailable; showing the best course-context "
-                    "CO match for faculty review."
-                )
             return research.message or (
                 "Web search is unavailable. Check your internet connection."
             )
         if research.status == "cancelled":
             return "Web search was cancelled."
-        if research.status in {"no_candidates", "no_public_queries"}:
-            if used_syllabus_fallback:
-                return (
-                    "No web query was run because no outcome met the search "
-                    "threshold; showing the best course-context CO match for "
-                    "faculty review."
-                )
-            return research.message or (
-                "No course outcome had enough evidence to start web search."
-            )
         if research.status == "partial":
-            if used_syllabus_fallback:
-                return (
-                    "Some searches were unavailable; showing the best "
-                    "course-context CO match for faculty review."
-                )
             return (
                 "Some searches were unavailable; the Web Search result may "
                 "have incomplete evidence."
-            )
-        if used_syllabus_fallback:
-            return (
-                "No clear web match; showing the best course-context CO match "
-                "for faculty review."
             )
         if co_label == "N/A":
             return research.message or (
