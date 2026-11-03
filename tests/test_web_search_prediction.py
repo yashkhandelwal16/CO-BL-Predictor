@@ -24,8 +24,12 @@ QUESTION = "Analyze Dijkstra routing and shortest paths."
 
 
 class FakeDDGS:
+    instances = []
+
     def __init__(self, *, timeout):
         self.timeout = timeout
+        self.queries = []
+        self.instances.append(self)
 
     def __enter__(self):
         return self
@@ -34,6 +38,7 @@ class FakeDDGS:
         return None
 
     def text(self, query, **_options):
+        self.queries.append(query)
         assert "dijkstra" in query.casefold()
         return [
             {
@@ -89,6 +94,7 @@ class StaticResearchEngine:
 
 
 def test_ddgs_pipeline_needs_no_api_key_and_uses_course_context():
+    FakeDDGS.instances.clear()
     service = WebSearchService(ddgs_factory=FakeDDGS)
     engine = ResearchEngine(
         search_service=service,
@@ -107,9 +113,14 @@ def test_ddgs_pipeline_needs_no_api_key_and_uses_course_context():
 
     assert result.format_output() == "CO level - CO1\nBL level - BL4"
     assert result.status_message == "Web Search suggestion ready for faculty review."
+    query = FakeDDGS.instances[0].queries[0]
+    assert "dijkstra" in query.casefold()
+    assert QUESTION.casefold() not in query.casefold()
+    assert "cs305" not in query.casefold()
+    assert OUTCOMES["CO1"].casefold() not in query.casefold()
 
 
-def test_web_co_and_bl_uncertainty_are_independent():
+def test_ambiguous_web_evidence_uses_best_syllabus_co_and_keeps_bl_independent():
     engine = StaticResearchEngine(
         "success",
         sources=(_source("CO1", 0.8), _source("CO2", 0.8)),
@@ -122,8 +133,9 @@ def test_web_co_and_bl_uncertainty_are_independent():
         syllabus_units=UNITS,
     )
 
-    assert result.co_label == "N/A"
+    assert result.co_label == "CO1"
     assert result.bl_label == "BL4"
+    assert "syllabus-based" in result.status_message
     assert engine.inputs["course_outcomes"] == OUTCOMES
     assert engine.inputs["unit_topics"] == UNITS
 
@@ -144,9 +156,10 @@ def test_search_failure_returns_unavailable_co_without_blocking_bl():
         syllabus_units=UNITS,
     )
 
-    assert result.co_label == "N/A"
+    assert result.co_label == "CO1"
     assert result.bl_label == "BL4"
     assert "unavailable" in result.status_message.casefold()
+    assert "syllabus-based" in result.status_message.casefold()
 
 
 def test_unexpected_worker_error_is_reported_as_web_only_status():
