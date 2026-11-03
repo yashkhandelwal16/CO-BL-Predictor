@@ -233,10 +233,24 @@ class ResearchEngine:
         queries_attempted = 0
         query_attempts: dict[str, tuple[tuple[SearchResult, ...] | None, str | None]] = {}
         for generated_query in candidate_queries:
+            candidate_ranking = next(
+                (
+                    ranking
+                    for ranking in analysis.co_rankings
+                    if ranking.co_id == generated_query.co_id
+                ),
+                None,
+            )
+            candidate_topics = (
+                tuple(topic.topic for topic in candidate_ranking.matched_topics)
+                if candidate_ranking is not None
+                else ()
+            )
             safe_query = self._privacy_safe_query(
                 relevant_technical_concepts,
                 detected_cognitive_action,
                 outcomes[generated_query.co_id],
+                candidate_topics,
             )
             if not safe_query:
                 candidates.append(
@@ -525,14 +539,19 @@ class ResearchEngine:
         technical_concepts: Sequence[str],
         cognitive_action: str,
         co_description: str,
+        relevant_syllabus_topics: Sequence[str] = (),
     ) -> str:
-        outcome_terms = ResearchEngine._terms(co_description)
+        allowed_terms = ResearchEngine._terms(co_description)
+        for topic in relevant_syllabus_topics:
+            allowed_terms.update(ResearchEngine._terms(topic))
         terms = [
             concept.strip()
             for concept in technical_concepts
             if isinstance(concept, str)
             and concept.strip()
-            and ResearchEngine._terms(concept).intersection(outcome_terms)
+            and 1 <= len(ResearchEngine._terms(concept)) <= 3
+            and len(concept) <= 48
+            and ResearchEngine._terms(concept).issubset(allowed_terms)
         ]
         safe_parts = ResearchEngine._deduplicate_text(terms)
         if not safe_parts:

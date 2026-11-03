@@ -37,6 +37,7 @@ from src.courses.course_manager import (
 from src.database.db_manager import DatabaseError, DatabaseManager
 from src.prediction.bloom_rules import load_bloom_config
 from src.prediction.hybrid_prediction_worker import HybridPredictionWorker
+from src.prediction.web_search_worker import WebSearchPredictionWorker
 from src.syllabus.pdf_extractor import (
     PDFExtractionError,
     extract_syllabus,
@@ -87,6 +88,8 @@ class MainWindow(QMainWindow):
         )
         self.bloom_config = load_bloom_config()
         self._prediction_worker: HybridPredictionWorker | None = None
+        self._web_search_workers: dict[int, WebSearchPredictionWorker] = {}
+        self._web_search_request_id = 0
         self.page_stack = QStackedWidget()
 
         central_widget = QWidget()
@@ -765,7 +768,37 @@ class MainWindow(QMainWindow):
         form_layout.addWidget(self.predict_button, 0, Qt.AlignmentFlag.AlignLeft)
         form_layout.addWidget(self.prediction_result)
         form_layout.addWidget(self.prediction_status)
-        layout.addWidget(form_card, 1)
+
+        web_search_card = self._card()
+        web_search_layout = QVBoxLayout(web_search_card)
+        web_search_layout.setContentsMargins(16, 16, 16, 16)
+        web_search_layout.setSpacing(12)
+        web_search_heading = QLabel("Web Search")
+        web_search_heading.setObjectName("fieldLabel")
+        self.web_search_result = QLabel(
+            "CO level - —\nBL level - —"
+        )
+        self.web_search_result.setObjectName("predictionResult")
+        self.web_search_result.setTextFormat(Qt.TextFormat.RichText)
+        self.web_search_result.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self.web_search_result.setWordWrap(True)
+        self.web_search_status = QLabel(
+            "Searches public sources separately when you predict."
+        )
+        self.web_search_status.setObjectName("noticeText")
+        self.web_search_status.setWordWrap(True)
+        web_search_layout.addWidget(web_search_heading)
+        web_search_layout.addWidget(self.web_search_result)
+        web_search_layout.addWidget(self.web_search_status)
+        web_search_layout.addStretch(1)
+
+        prediction_panels = QHBoxLayout()
+        prediction_panels.setSpacing(16)
+        prediction_panels.addWidget(form_card, 3)
+        prediction_panels.addWidget(web_search_card, 2)
+        layout.addLayout(prediction_panels, 1)
         return page
 
     def _start_prediction(self) -> None:
@@ -791,6 +824,57 @@ class MainWindow(QMainWindow):
         self._prediction_worker = worker
         self._update_prediction_button()
         worker.start()
+
+        course = self.database.get_course_by_id(course_id)
+        if course is None:
+            self.web_search_result.setText("CO level - N/A<br>BL level - N/A")
+            self.web_search_status.setText(
+                "The selected course is no longer available for web search."
+            )
+            return
+        syllabus_versions = self.database.list_syllabus_versions(
+            course_id=course["id"]
+        )
+        reviewed_syllabus = next(
+            (
+                syllabus
+                for syllabus in syllabus_versions
+                if syllabus["review_status"] == "reviewed"
+            ),
+            None,
+        )
+        syllabus_units = (
+            reviewed_syllabus["content"].get("units", [])
+            if reviewed_syllabus is not None
+            else []
+        )
+        self._web_search_request_id += 1
+        request_id = self._web_search_request_id
+        self.web_search_result.setText("CO level - —<br>BL level - —")
+        self.web_search_status.setText("Searching public sources...")
+        web_worker = WebSearchPredictionWorker(
+            question=question,
+            course_name=course["course_name"],
+            course_code=course["course_code"],
+            course_outcomes=course["course_outcomes"],
+            syllabus_units=syllabus_units,
+            parent=self,
+        )
+        self._web_search_workers[request_id] = web_worker
+        web_worker.completed.connect(
+            lambda output, status, current_id=request_id: (
+                self._web_search_completed(current_id, output, status)
+            )
+        )
+        web_worker.cancelled.connect(
+            lambda current_id=request_id: self._web_search_cancelled(current_id)
+        )
+        web_worker.finished.connect(
+            lambda current_id=request_id, current_worker=web_worker: (
+                self._web_search_worker_finished(current_id, current_worker)
+            )
+        )
+        web_worker.start()
 
     def _web_research_setting_changed(self, enabled: bool) -> None:
         self.settings.setValue("web_research_enabled", enabled)
@@ -818,6 +902,29 @@ class MainWindow(QMainWindow):
     def _prediction_cancelled(self) -> None:
         if not self.prediction_result.text():
             self.prediction_status.setText("Classification was cancelled.")
+
+    def _web_search_completed(
+        self, request_id: int, formatted_result: str, status_message: str
+    ) -> None:
+        if request_id != self._web_search_request_id:
+            return
+        bold_lines = (
+            f"<strong>{escape(line)}</strong>"
+            for line in formatted_result.splitlines()
+        )
+        self.web_search_result.setText("<br>".join(bold_lines))
+        self.web_search_status.setText(status_message)
+
+    def _web_search_cancelled(self, request_id: int) -> None:
+        if request_id == self._web_search_request_id:
+            self.web_search_status.setText("Web search was cancelled.")
+
+    def _web_search_worker_finished(
+        self, request_id: int, worker: WebSearchPredictionWorker
+    ) -> None:
+        if self._web_search_workers.get(request_id) is worker:
+            del self._web_search_workers[request_id]
+        worker.deleteLater()
 
     def _prediction_worker_finished(self) -> None:
         worker = self._prediction_worker
@@ -1020,6 +1127,10 @@ class MainWindow(QMainWindow):
         if self._prediction_worker is not None:
             self._prediction_worker.cancel()
             self._prediction_worker.wait()
+        for worker in self._web_search_workers.values():
+            worker.cancel()
+        for worker in self._web_search_workers.values():
+            worker.wait()
         self.database.close()
 
     def _new_page(self, heading: str, subtitle: str) -> tuple[QWidget, QVBoxLayout]:

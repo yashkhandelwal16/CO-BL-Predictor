@@ -172,6 +172,54 @@ def test_external_query_excludes_question_course_and_official_syllabus_text():
     assert "inheritance" in sent_query
 
 
+def test_weak_syllabus_match_still_runs_sanitized_public_query():
+    question = "Explain with example what is classes?"
+    outcomes = {
+        "CO1": "Remember OOP principles and Java Programming Basics.",
+        "CO2": "Understand Inheritance and Polymorphism concepts in program design.",
+        "CO3": "Apply object relationships, aggregation, and delegation in OOP models.",
+        "CO4": "Analyze packages, exception handling, and String handling.",
+    }
+    topics = [
+        {
+            "unit_title": "Introduction to OOP and Java Basics",
+            "topics": ["OOP principles, Java fundamentals, classes and objects."],
+        },
+        {
+            "unit_title": "Object Relationships",
+            "topics": ["Association, aggregation and composition."],
+        },
+    ]
+    search = FakeSearchService([])
+    engine = ResearchEngine(
+        search_service=search,
+        extraction_service=FakeExtractionService(),
+        query_generator=SyllabusAwareQueryGenerator(
+            min_co_similarity=0.001
+        ),
+    )
+
+    result = engine.research(
+        academic_question=question,
+        course_name="Object Oriented Programming using Java",
+        course_code="CS3013",
+        course_outcomes=outcomes,
+        unit_topics=topics,
+        relevant_technical_concepts=("classes",),
+        detected_cognitive_action="understand",
+    )
+
+    assert result.query_analysis.co_rankings[0].similarity > 0
+    assert result.query_analysis.generated_queries
+    assert search.calls
+    sent_query = search.calls[0][0]
+    assert "classes" in sent_query
+    assert question not in sent_query
+    assert "CS3013" not in sent_query
+    assert "Introduction to OOP and Java Basics" not in sent_query
+    assert all(description not in sent_query for description in outcomes.values())
+
+
 def test_search_cache_prevents_duplicate_external_query_and_reuses_results():
     search = FakeSearchService(_results())
     extraction = FakeExtractionService()

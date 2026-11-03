@@ -34,7 +34,9 @@ def _ranking(co_id, score, description=None, topic_score=0.5):
     )
 
 
-def _prediction(co="CO1", bl="BL3"):
+def _prediction(
+    co="CO1", bl="BL3", bl_scheme="custom_bl0_bl5"
+):
     return PredictionResult(
         co_label=co,
         bl_label=bl,
@@ -44,6 +46,7 @@ def _prediction(co="CO1", bl="BL3"):
         syllabus_version_id=None,
         model_name="local-test-model",
         model_version="test",
+        bl_scheme=bl_scheme,
     )
 
 
@@ -297,3 +300,18 @@ def test_local_only_fallback_uses_legacy_shared_level_without_changing_predictor
     assert result.co_label == "CO1"
     assert result.bl_label == "BL5"
     assert result.decision_record.pipeline_mode == "local-only"
+
+
+def test_local_only_fallback_preserves_revised_bl6():
+    result = HybridPredictionEngine().predict(
+        QUESTION,
+        OUTCOMES,
+        UNITS,
+        local_prediction=_prediction(
+            bl="BL6",
+            bl_scheme="revised_bl1_bl6",
+        ),
+    )
+
+    assert result.bl_label == "BL6"
+    assert result.bl_scheme == "revised_bl1_bl6"

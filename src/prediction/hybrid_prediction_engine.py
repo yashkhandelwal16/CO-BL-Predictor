@@ -160,6 +160,19 @@ class HybridPredictionEngine:
             )
             else "local-only"
         )
+        uses_revised_bl_scheme = (
+            local_prediction is not None
+            and local_prediction.bl_scheme == "revised_bl1_bl6"
+        ) or academic_analysis is not None or any(
+            example.bl_scheme == "revised_bl1_bl6"
+            and example.similarity >= self.min_example_similarity
+            for example in prepared.examples
+        )
+        bl_scheme: BloomScheme = (
+            "revised_bl1_bl6"
+            if uses_revised_bl_scheme
+            else "custom_bl0_bl5"
+        )
 
         if not self._is_course_relevant(question, prepared):
             record = HybridDecisionRecord(
@@ -182,16 +195,7 @@ class HybridPredictionEngine:
                 co_label="N/A",
                 bl_label="N/A",
                 status="invalid_question",
-                bl_scheme=(
-                    "revised_bl1_bl6"
-                    if academic_analysis is not None
-                    or any(
-                        example.bl_scheme == "revised_bl1_bl6"
-                        and example.similarity >= self.min_example_similarity
-                        for example in prepared.examples
-                    )
-                    else "custom_bl0_bl5"
-                ),
+                bl_scheme=bl_scheme,
                 decision_record=record,
             )
 
@@ -234,16 +238,7 @@ class HybridPredictionEngine:
             co_label=co_label,
             bl_label=bl_label,
             status=status,
-            bl_scheme=(
-                "revised_bl1_bl6"
-                if academic_analysis is not None
-                or any(
-                    example.bl_scheme == "revised_bl1_bl6"
-                    and example.similarity >= self.min_example_similarity
-                    for example in prepared.examples
-                )
-                else "custom_bl0_bl5"
-            ),
+            bl_scheme=bl_scheme,
             decision_record=record,
         )
 
@@ -416,6 +411,12 @@ class HybridPredictionEngine:
         conflicts: list[str],
         source_ids: set[str],
     ) -> tuple[str, str | None]:
+        local_bl_levels = (
+            _BL_LEVELS
+            if local_prediction is not None
+            and local_prediction.bl_scheme == "revised_bl1_bl6"
+            else _LEGACY_BL_LEVELS
+        )
         analysis_levels = (
             set(analysis.possible_bl_levels)
             if analysis is not None
@@ -451,7 +452,7 @@ class HybridPredictionEngine:
                 )
             if (
                 local_prediction is not None
-                and local_prediction.bl_label in _LEGACY_BL_LEVELS
+                and local_prediction.bl_label in local_bl_levels
                 and local_prediction.bl_label != bl_label
             ):
                 conflicts.append(
@@ -493,7 +494,7 @@ class HybridPredictionEngine:
             )
             if (
                 local_prediction is not None
-                and local_prediction.bl_label in _LEGACY_BL_LEVELS
+                and local_prediction.bl_label in local_bl_levels
                 and local_prediction.bl_label != example_level
             ):
                 conflicts.append(
@@ -524,7 +525,7 @@ class HybridPredictionEngine:
 
         if local_prediction is not None:
             legacy_level = local_prediction.bl_label
-            if legacy_level in _LEGACY_BL_LEVELS:
+            if legacy_level in local_bl_levels:
                 supports.append(
                     f"The existing local Qwen prediction supports {legacy_level}; "
                     "this shared level ID is used only as a lower-priority hint."
@@ -534,7 +535,8 @@ class HybridPredictionEngine:
             if legacy_level not in {"N/A", "BL0"}:
                 conflicts.append(
                     f"The existing local prediction returned unsupported "
-                    f"Bloom label {legacy_level}."
+                    f"Bloom label {legacy_level} for its {local_prediction.bl_scheme} "
+                    "scheme."
                 )
 
         self._record_bl_sources(analysis, supports, source_ids)
@@ -1060,8 +1062,14 @@ class HybridPredictionEngine:
             raise ValueError("The existing local prediction has an invalid type.")
         if prediction.co_label not in {*outcomes, "N/A"}:
             raise ValueError("The existing prediction has an unavailable CO label.")
-        if prediction.bl_label not in {*_LEGACY_BL_LEVELS, "BL0", "N/A"}:
-            raise ValueError("The existing prediction has an invalid custom BL label.")
+        if prediction.bl_scheme == "revised_bl1_bl6":
+            valid_bl_labels = _BL_LEVELS | {"N/A"}
+        elif prediction.bl_scheme == "custom_bl0_bl5":
+            valid_bl_labels = _LEGACY_BL_LEVELS | {"BL0", "N/A"}
+        else:
+            raise ValueError("The existing prediction has an invalid BL scheme.")
+        if prediction.bl_label not in valid_bl_labels:
+            raise ValueError("The existing prediction has an invalid BL label.")
 
     @staticmethod
     def _required_text(value: object, label: str) -> str:

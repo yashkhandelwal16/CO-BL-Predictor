@@ -11,10 +11,9 @@ from threading import RLock
 from typing import Any, Iterator
 
 
-DATABASE_SCHEMA_VERSION = 5
+DATABASE_SCHEMA_VERSION = 6
 VALID_CO_LABELS = {"CO1", "CO2", "CO3", "CO4", "CO5", "N/A"}
 VALID_BL_LABELS = {"BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "BL6", "N/A"}
-VALID_LEGACY_BL_LABELS = {"BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "N/A"}
 VALID_HYBRID_BL_LABELS = {"BL1", "BL2", "BL3", "BL4", "BL5", "BL6", "N/A"}
 
 
@@ -113,7 +112,7 @@ class DatabaseManager:
                 )
             if current_version == DATABASE_SCHEMA_VERSION:
                 return
-            if current_version not in {0, 1, 2, 3, 4}:
+            if current_version not in {0, 1, 2, 3, 4, 5}:
                 raise DatabaseError(
                     f"No migration is available from database version "
                     f"{current_version}."
@@ -131,8 +130,96 @@ class DatabaseManager:
                     self._migrate_v2_to_v3(connection)
                 if current_version in {1, 2, 3}:
                     self._migrate_v3_to_v4(connection)
-            self._migrate_v4_to_v5(connection)
+            if current_version < 5:
+                self._migrate_v4_to_v5(connection)
+            self._migrate_v5_to_v6(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
+
+    @staticmethod
+    def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "CREATE TABLE predictions_v6 ("
+            "id TEXT PRIMARY KEY, "
+            "question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, "
+            "syllabus_version_id TEXT REFERENCES syllabus_versions(id) "
+            "ON DELETE SET NULL, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK "
+            "(bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'BL6', 'N/A')), "
+            "status TEXT NOT NULL CHECK "
+            "(status IN ('predicted', 'insufficient_context', 'failed')), "
+            "provider_name TEXT, model_name TEXT, model_version TEXT, "
+            "created_at TEXT NOT NULL, "
+            "bl_scheme TEXT NOT NULL DEFAULT 'custom_bl0_bl5' CHECK "
+            "(bl_scheme IN ('custom_bl0_bl5', 'revised_bl1_bl6')), "
+            "UNIQUE (id, question_id))"
+        )
+        connection.execute(
+            "INSERT INTO predictions_v6 "
+            "(id, question_id, syllabus_version_id, co_label, bl_label, status, "
+            "provider_name, model_name, model_version, created_at, bl_scheme) "
+            "SELECT id, question_id, syllabus_version_id, co_label, bl_label, "
+            "status, provider_name, model_name, model_version, created_at, "
+            "'custom_bl0_bl5' FROM predictions"
+        )
+        connection.execute(
+            "CREATE TABLE approved_labels_v6 ("
+            "id TEXT PRIMARY KEY, "
+            "question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE, "
+            "prediction_id TEXT, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK "
+            "(bl_label IN ('BL0', 'BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'BL6', 'N/A')), "
+            "review_status TEXT NOT NULL CHECK "
+            "(review_status IN ('approved', 'corrected')), "
+            "reviewed_by TEXT, review_note TEXT, created_at TEXT NOT NULL, "
+            "bl_scheme TEXT NOT NULL DEFAULT 'custom_bl0_bl5' CHECK "
+            "(bl_scheme IN ('custom_bl0_bl5', 'revised_bl1_bl6')), "
+            "FOREIGN KEY (prediction_id, question_id) "
+            "REFERENCES predictions_v6(id, question_id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "INSERT INTO approved_labels_v6 SELECT * FROM approved_labels"
+        )
+        connection.execute(
+            "CREATE TABLE hybrid_predictions_v6 ("
+            "prediction_id TEXT PRIMARY KEY REFERENCES predictions_v6(id) "
+            "ON DELETE CASCADE, "
+            "co_label TEXT NOT NULL CHECK (co_label IN "
+            "('CO1', 'CO2', 'CO3', 'CO4', 'CO5', 'N/A')), "
+            "bl_label TEXT NOT NULL CHECK "
+            "(bl_label IN ('BL1', 'BL2', 'BL3', 'BL4', 'BL5', 'BL6', 'N/A')), "
+            "status TEXT NOT NULL CHECK "
+            "(status IN ('predicted', 'insufficient_context')), "
+            "pipeline_mode TEXT NOT NULL CHECK "
+            "(pipeline_mode IN ('hybrid', 'local-only')), "
+            "bl_scheme TEXT NOT NULL CHECK "
+            "(bl_scheme IN ('custom_bl0_bl5', 'revised_bl1_bl6')), "
+            "decision_record_json TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO hybrid_predictions_v6 SELECT * FROM hybrid_predictions"
+        )
+        connection.execute("DROP TABLE approved_labels")
+        connection.execute("DROP TABLE hybrid_predictions")
+        connection.execute("DROP TABLE predictions")
+        connection.execute("ALTER TABLE predictions_v6 RENAME TO predictions")
+        connection.execute(
+            "ALTER TABLE approved_labels_v6 RENAME TO approved_labels"
+        )
+        connection.execute(
+            "ALTER TABLE hybrid_predictions_v6 RENAME TO hybrid_predictions"
+        )
+        connection.execute(
+            "CREATE INDEX idx_predictions_question_created "
+            "ON predictions(question_id, created_at DESC)"
+        )
+        connection.execute(
+            "CREATE INDEX idx_approved_question_created "
+            "ON approved_labels(question_id, created_at DESC)"
+        )
 
     @staticmethod
     def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
@@ -985,11 +1072,18 @@ class DatabaseManager:
         model_name: str | None = None,
         model_version: str | None = None,
         syllabus_version_id: str | None = None,
+        bl_scheme: str = "custom_bl0_bl5",
     ) -> dict[str, Any]:
         if co_label not in VALID_CO_LABELS:
             raise ValueError(f"Invalid course outcome label: {co_label}.")
-        if bl_label not in VALID_LEGACY_BL_LABELS:
+        if bl_label not in VALID_BL_LABELS:
             raise ValueError(f"Invalid Bloom-style label: {bl_label}.")
+        if bl_scheme not in {"custom_bl0_bl5", "revised_bl1_bl6"}:
+            raise ValueError("Invalid Bloom taxonomy for prediction.")
+        if bl_scheme == "custom_bl0_bl5" and bl_label == "BL6":
+            raise ValueError("Invalid Bloom-style label for the selected taxonomy.")
+        if bl_scheme == "revised_bl1_bl6" and bl_label in {"BL0"}:
+            raise ValueError("Invalid Bloom-style label for the selected taxonomy.")
         if status not in {"predicted", "insufficient_context", "failed"}:
             raise ValueError("Invalid prediction status.")
         now = _timestamp()
@@ -998,8 +1092,8 @@ class DatabaseManager:
             connection.execute(
                 "INSERT INTO predictions "
                 "(id, question_id, syllabus_version_id, co_label, bl_label, status, "
-                "provider_name, model_name, model_version, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "provider_name, model_name, model_version, created_at, bl_scheme) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     prediction_id,
                     question_id,
@@ -1011,6 +1105,7 @@ class DatabaseManager:
                     model_name,
                     model_version,
                     now,
+                    bl_scheme,
                 ),
             )
         return {
@@ -1023,6 +1118,7 @@ class DatabaseManager:
             "provider_name": provider_name,
             "model_name": model_name,
             "model_version": model_version,
+            "bl_scheme": bl_scheme,
             "created_at": now,
         }
 
@@ -1163,7 +1259,8 @@ class DatabaseManager:
                    COALESCE(h.co_label, p.co_label) AS predicted_co,
                    COALESCE(h.bl_label, p.bl_label) AS predicted_bl,
                    COALESCE(h.status, p.status) AS prediction_status,
-                   h.pipeline_mode, h.bl_scheme AS predicted_bl_scheme,
+                   h.pipeline_mode,
+                   COALESCE(h.bl_scheme, p.bl_scheme) AS predicted_bl_scheme,
                    h.decision_record_json,
                    p.model_name, p.model_version, p.provider_name,
                    a.co_label AS approved_co, a.bl_label AS approved_bl,

@@ -1,16 +1,26 @@
 # CO & BL Predictor
 
 A Windows desktop app that helps faculty map exam questions to course outcomes
-(CO1–CO5) and cognitive levels (BL0–BL5). Predictions run locally and are
-suggestions for faculty review, not final decisions.
+(CO1–CO5) and Revised Bloom's Taxonomy levels (BL1–BL6). Predictions run
+locally and are suggestions for faculty review, not final decisions. Older
+custom BL0–BL5 history remains distinguishable from the revised labels.
 
 ## Features
 
 - Manage courses and their course outcomes.
 - Import, review, and save syllabus PDFs.
 - Predict CO and BL labels with a local Qwen model.
+- Show an independent DDGS-based Web Search suggestion beside the local result.
 - Review predictions and browse question history.
 - Keep courses and prediction data in a local SQLite database.
+
+The local model prompt and the independent Web Search classifier share the
+Revised Bloom's Taxonomy knowledge base in
+[`src/prediction/bloom_taxonomy.py`](./src/prediction/bloom_taxonomy.py).
+It defines BL1 Remember, BL2 Understand, BL3 Apply, BL4 Analyze, BL5 Evaluate,
+and BL6 Create. Classification considers the full question and expected
+student response, not an action verb, length, difficulty, or programming
+format alone. When the evidence does not support a level, the result is `N/A`.
 
 ## Run
 
@@ -29,12 +39,18 @@ newer versions of the app.
 
 ## Optional web search service
 
-The standalone web search service uses DDGS for public text search without an
-API key. Trafilatura can extract readable text from a selected public webpage.
-Search and page extraction are optional services; they are not connected to
-question prediction. Search queries are sent to public search backends, so only
-use public research topics; never pass private course data, syllabus content,
-or examination questions.
+The Web Search panel runs its own DDGS research pipeline without an API key;
+it does not change or replace the local prediction. Trafilatura can extract
+readable text from selected public webpages. Searches require an internet
+connection, and only privacy-filtered technical queries are sent to public
+search providers. The complete question, course identity, official outcome
+descriptions, and syllabus topics are used locally and excluded from external
+queries. If public sources do not clearly support one CO, the panel can use a
+best nonzero match from the reviewed course outcomes and syllabus topics, and
+labels that fallback for faculty review. If the course context has no matching
+signal, it reports `N/A`.
+The local model also receives per-outcome syllabus-match evidence as context;
+the model remains responsible for choosing the local CO label.
 
 Install the declared dependencies with the normal requirements command above.
 The service can be used independently:
@@ -74,7 +90,8 @@ limited by count, timeout, response size, and an in-memory successful-result
 cache. Failed, blocked, invalid, or unreadable pages retain their original
 search title, URL, and snippet with a status and internal diagnostic. The
 standalone `WebContentExtractionWorker` can run this work away from the GUI
-thread. Neither search nor extraction is connected to question prediction.
+thread. The application's independent Web Search panel uses these services;
+its output does not modify the local prediction.
 
 ## Optional syllabus-aware query generation
 
@@ -132,9 +149,9 @@ concepts that locally match the candidate outcome, plus the cognitive action
 and generic academic terms. Supply only concepts suitable for public search.
 The question text, course identity, official CO description, and syllabus
 topics are used locally for ranking and are excluded from the external query.
-If no such concepts are supplied, that candidate is not searched. Web evidence
-is research context only and never assigns an institutional CO or changes
-local prediction.
+If no such concepts are supplied, that candidate is not searched. Search
+evidence supports only the independent Web Search suggestion; it cannot change
+the local prediction or verify institutional CO descriptions.
 
 ```python
 from src.research import ResearchEngine
@@ -214,9 +231,8 @@ otherwise inconclusive ranking. Unresolved top-tier conflicts abstain rather
 than being settled by majority vote or uncalibrated confidence. Web sources
 are recorded only as supporting context and cannot assign institutional CO
 numbers. Revised Bloom decisions use a certain single-level academic analysis
-first, then similar approved examples, then the existing local BL1–BL5 label
-as a lower-priority hint. Legacy BL0 is not mapped to a revised level, and the
-engine never infers BL6 from the old pipeline.
+first, then similar approved examples, then the local BL1–BL6 label as a
+lower-priority hint. Legacy BL0 is not mapped to a revised level.
 
 The decision record retains selected labels, evidence, conflicts, cited
 sources, independent abstention reasons, and whether the supplied evidence
@@ -243,16 +259,18 @@ The Predict page uses this layer after the existing local predictor. The
 “Include optional public research” checkbox is off by default and its setting
 is saved locally. When enabled, bounded DDGS research and page extraction run
 in the prediction worker; when disabled or unavailable, the local-only path
-continues and the UI reports that mode. Public search receives only
-privacy-filtered technical queries, not the complete question or syllabus.
-The existing local prediction record is retained, and the hybrid result is
-stored separately with its decision record and source metadata.
+continues and the UI reports that mode. Separately, the Web Search panel starts
+its own DDGS-based CO and BL suggestion with each prediction request. Its
+success or failure does not alter the local result. Public search receives
+only privacy-filtered technical queries, not the complete question or
+syllabus. The existing local prediction record is retained, and the hybrid
+result is stored separately with its decision record and source metadata.
 
-On startup, existing version 4 databases are migrated to version 5 without
-deleting prediction history. The migration adds the separate hybrid-result
-table and Bloom-scheme metadata for reviewed labels. Revised BL1–BL6 labels
-remain distinguishable from the legacy custom BL0–BL5 labels in history and
-review.
+On startup, existing databases are migrated to the current schema without
+deleting prediction history. The migrations retain the separate hybrid-result
+table and Bloom-scheme metadata, and add Revised BL1–BL6 storage for local
+predictions while keeping legacy custom BL0–BL5 labels distinguishable in
+history and review.
 
 This integration has not been evaluated on institution-approved held-out
 data. Suggestions remain subject to faculty review; public search evidence

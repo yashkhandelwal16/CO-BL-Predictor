@@ -2,7 +2,11 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from src.nlp.text_preprocessor import preprocess_text, tfidf_similarity_scores
+from src.nlp.text_preprocessor import (
+    normalize_academic_term,
+    preprocess_text,
+    tfidf_similarity_scores,
+)
 
 
 DEFAULT_MAX_CANDIDATES = 3
@@ -28,7 +32,7 @@ _STOP_WORDS = frozenset(
         "write", "analyze", "apply", "calculate", "classify", "compare",
         "compute", "create", "design", "derive", "develop", "formulate",
         "construct", "contrast", "demonstrate", "differentiate", "examine",
-        "justify", "list", "recall", "summarize", "verify",
+        "illustrate", "justify", "list", "recall", "summarize", "verify",
     }
 )
 _GENERIC_BRIDGE_TERMS = frozenset(
@@ -407,7 +411,7 @@ class SyllabusAwareQueryGenerator:
     @staticmethod
     def _meaningful_terms(text: str) -> set[str]:
         return {
-            token
+            normalize_academic_term(token)
             for token in _TOKEN_PATTERN.findall(preprocess_text(text))
             if token not in _STOP_WORDS and len(token) > 1
         }

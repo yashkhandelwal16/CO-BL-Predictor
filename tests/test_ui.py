@@ -236,6 +236,31 @@ def test_prediction_result_displays_only_the_required_two_lines() -> None:
     assert window.prediction_status.text() == "Suggestion ready for faculty review."
 
 
+def test_web_search_panel_is_separate_and_cannot_overwrite_llm_result() -> None:
+    get_application()
+    window = MainWindow()
+    window.navigate("Predict")
+
+    assert any(
+        label.text() == "Web Search"
+        for label in window.pages["Predict"].findChildren(QLabel)
+    )
+    window._prediction_completed("CO level - CO2\nBL level - BL3")
+    llm_result = window.prediction_result.text()
+
+    window._web_search_completed(
+        0,
+        "CO level - N/A\nBL level - BL4",
+        "Web search is unavailable.",
+    )
+
+    assert window.prediction_result.text() == llm_result
+    assert window.prediction_status.text() == "Suggestion ready for faculty review."
+    assert "CO level - N/A" in window.web_search_result.text()
+    assert window.web_search_status.text() == "Web search is unavailable."
+    window.close_storage()
+
+
 def test_end_user_interface_hides_implementation_details() -> None:
     get_application()
     window = MainWindow()

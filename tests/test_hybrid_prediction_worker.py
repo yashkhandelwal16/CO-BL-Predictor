@@ -95,7 +95,7 @@ def test_local_only_worker_preserves_prediction_history_and_reports_mode(
     assert len(history) == 1
     assert history[0]["predicted_co"] == "CO1"
     assert history[0]["predicted_bl"] == "BL4"
-    assert history[0]["predicted_bl_scheme"] == "custom_bl0_bl5"
+    assert history[0]["predicted_bl_scheme"] == "revised_bl1_bl6"
     assert history[0]["pipeline_mode"] == "local-only"
     assert json.loads(history[0]["decision_record_json"])["selected_co"] == "CO1"
     assert len(llm_client.responses) == 0
