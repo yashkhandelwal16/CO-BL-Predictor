@@ -40,7 +40,7 @@ def default_database_path() -> Path:
             if xdg_data_home
             else Path.home() / ".local" / "share"
         )
-    return data_directory / "CO-BL-Predictor" / "predictor.sqlite3"
+    return data_directory / "CO-BL-Predictor-MVP" / "predictor.sqlite3"
 
 
 def _timestamp() -> str:

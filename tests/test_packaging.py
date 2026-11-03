@@ -59,7 +59,7 @@ def test_packaged_bloom_rules_are_copied_to_writable_user_data(
 
     config = load_bloom_config()
     user_config = (
-        local_app_data / "CO-BL-Predictor" / "config" / "bloom_levels.json"
+        local_app_data / "CO-BL-Predictor-MVP" / "config" / "bloom_levels.json"
     )
     assert user_config.is_file()
     original_user_content = user_config.read_text(encoding="utf-8")
@@ -83,10 +83,10 @@ def test_packaged_database_path_is_outside_bundle_and_uses_local_app_data(
     database_path = default_database_path()
 
     assert database_path == (
-        local_app_data / "CO-BL-Predictor" / "predictor.sqlite3"
+        local_app_data / "CO-BL-Predictor-MVP" / "predictor.sqlite3"
     )
     assert resources not in database_path.parents
-    assert application_data_root() == local_app_data / "CO-BL-Predictor"
+    assert application_data_root() == local_app_data / "CO-BL-Predictor-MVP"
 
 
 def test_model_startup_validation_rejects_missing_or_invalid_assets(tmp_path):

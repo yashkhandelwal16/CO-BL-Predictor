@@ -645,5 +645,5 @@ def test_default_database_location_uses_user_local_app_data(monkeypatch, tmp_pat
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "LocalAppData"))
 
     assert default_database_path() == (
-        tmp_path / "LocalAppData" / "CO-BL-Predictor" / "predictor.sqlite3"
+        tmp_path / "LocalAppData" / "CO-BL-Predictor-MVP" / "predictor.sqlite3"
     )

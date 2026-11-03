@@ -26,9 +26,9 @@ def application_data_root() -> Path:
     """Return writable per-user data outside a PyInstaller extraction folder."""
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
-        return Path(local_app_data) / "CO-BL-Predictor"
+        return Path(local_app_data) / "CO-BL-Predictor-MVP"
     if os.name == "nt":
-        return Path.home() / "AppData" / "Local" / "CO-BL-Predictor"
+        return Path.home() / "AppData" / "Local" / "CO-BL-Predictor-MVP"
 
     xdg_data_home = os.environ.get("XDG_DATA_HOME")
     data_home = (
@@ -36,4 +36,4 @@ def application_data_root() -> Path:
         if xdg_data_home
         else Path.home() / ".local" / "share"
     )
-    return data_home / "CO-BL-Predictor"
+    return data_home / "CO-BL-Predictor-MVP"
