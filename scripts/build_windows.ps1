@@ -68,7 +68,7 @@ try {
         throw "The packaged smoke test did not verify bundled model inference."
     }
 
-    $userDataDirectory = Join-Path $smokeData "CO-BL-Predictor"
+    $userDataDirectory = Join-Path $smokeData "CO-BL-Predictor-MVP"
     if (-not (Test-Path (Join-Path $userDataDirectory "predictor.sqlite3"))) {
         throw "The packaged application did not create its user database."
     }

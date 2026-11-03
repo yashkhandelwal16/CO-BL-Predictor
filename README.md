@@ -24,7 +24,8 @@ the app:
 ```
 
 The app does not require a cloud AI service. Model and application data are
-stored locally.
+stored locally. This MVP version keeps its data separate from data created by
+newer versions of the app.
 
 ## Build a portable Windows executable
 
