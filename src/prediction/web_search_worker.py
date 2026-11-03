@@ -72,8 +72,22 @@ class WebSearchPredictionWorker(QThread):
     def _unavailable_result(
         self, status_message: str
     ) -> WebSearchPredictionResult:
+        co_label = "N/A"
+        if isinstance(self._service, WebSearchPredictionService):
+            co_label = self._service.course_context_suggestion(
+                question=self._question,
+                course_name=self._course_name,
+                course_code=self._course_code,
+                course_outcomes=self._course_outcomes,
+                syllabus_units=self._syllabus_units,
+            )
+            if co_label != "N/A":
+                status_message = (
+                    "Web search could not be completed; showing the best "
+                    "syllabus-based CO match for faculty review."
+                )
         return WebSearchPredictionResult(
-            co_label="N/A",
+            co_label=co_label,
             bl_label=classify_bloom_level(self._question),
             status_message=status_message,
         )
