@@ -103,6 +103,23 @@ def test_chat_streams_local_response_and_supplies_cpu_settings(
     }
 
 
+def test_chat_passes_requested_structured_output_format(tmp_path, monkeypatch):
+    client, model, _ = make_client(tmp_path, monkeypatch)
+    response_format = {
+        "type": "json_object",
+        "schema": {
+            "type": "object",
+            "properties": {"label": {"type": "string", "enum": ["CO1", "CO2"]}},
+            "required": ["label"],
+            "additionalProperties": False,
+        },
+    }
+
+    client.chat(valid_message(), response_format=response_format)
+
+    assert model.call_options["response_format"] == response_format
+
+
 def test_cancelled_generation_stops_between_tokens(tmp_path, monkeypatch):
     cancellation = threading.Event()
     client, _, _ = make_client(tmp_path, monkeypatch)

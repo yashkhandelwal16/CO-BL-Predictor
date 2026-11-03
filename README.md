@@ -1,16 +1,26 @@
 # CO & BL Predictor
 
 A Windows desktop app that helps faculty map exam questions to course outcomes
-(CO1–CO5) and cognitive levels (BL0–BL5). Predictions run locally and are
-suggestions for faculty review, not final decisions.
+(CO1–CO5) and Revised Bloom's Taxonomy levels (BL1–BL6). Predictions run
+locally and are suggestions for faculty review, not final decisions. Older
+custom BL0–BL5 history remains distinguishable from the revised labels.
 
 ## Features
 
 - Manage courses and their course outcomes.
 - Import, review, and save syllabus PDFs.
 - Predict CO and BL labels with a local Qwen model.
+- Show an independent DDGS-based Web Search suggestion beside the local result.
 - Review predictions and browse question history.
 - Keep courses and prediction data in a local SQLite database.
+
+The local model prompt and the independent Web Search classifier share the
+Revised Bloom's Taxonomy knowledge base in
+[`src/prediction/bloom_taxonomy.py`](./src/prediction/bloom_taxonomy.py).
+It defines BL1 Remember, BL2 Understand, BL3 Apply, BL4 Analyze, BL5 Evaluate,
+and BL6 Create. Classification considers the full question and expected
+student response, not an action verb, length, difficulty, or programming
+format alone. When the evidence does not support a level, the result is `N/A`.
 
 ## Run
 

@@ -71,9 +71,50 @@ def test_schema_migration_creates_expected_tables_and_indexes(tmp_path) -> None:
         "questions",
         "predictions",
         "approved_labels",
+        "hybrid_predictions",
     }.issubset(tables)
     assert database.integrity_check() == "ok"
     database.close()
+
+
+def test_v5_migration_preserves_review_and_hybrid_history(tmp_path) -> None:
+    database_path = tmp_path / "version-five.sqlite3"
+    database = DatabaseManager(database_path)
+    CourseManager(database).add_course("Networks", "CS301", outcome_descriptions())
+    question = database.create_question("CS301", "Design a network system.")
+    prediction = database.create_prediction(question["id"], "CO1", "BL3")
+    database.save_approved_labels(
+        question["id"],
+        "CO1",
+        "BL6",
+        prediction_id=prediction["id"],
+        bl_scheme="revised_bl1_bl6",
+    )
+    database.save_hybrid_prediction(
+        prediction["id"],
+        "CO1",
+        "BL6",
+        status="predicted",
+        pipeline_mode="hybrid",
+        bl_scheme="revised_bl1_bl6",
+        decision_record={"selected_co": "CO1", "selected_bl": "BL6"},
+    )
+    database.close()
+
+    connection = sqlite3.connect(database_path)
+    connection.execute("PRAGMA user_version = 5")
+    connection.commit()
+    connection.close()
+
+    migrated = DatabaseManager(database_path)
+    history = migrated.list_question_history()
+
+    assert history[0]["predicted_bl"] == "BL6"
+    assert history[0]["predicted_bl_scheme"] == "revised_bl1_bl6"
+    assert history[0]["approved_bl"] == "BL6"
+    assert history[0]["approved_bl_scheme"] == "revised_bl1_bl6"
+    assert migrated.integrity_check() == "ok"
+    migrated.close()
 
 
 def test_v2_migration_promotes_reviewed_syllabus_into_shared_course(tmp_path) -> None:
@@ -82,6 +123,9 @@ def test_v2_migration_promotes_reviewed_syllabus_into_shared_course(tmp_path) ->
     database.close()
     connection = sqlite3.connect(database_path)
     connection.execute("ALTER TABLE courses DROP COLUMN archived_at")
+    connection.execute("DROP TABLE hybrid_predictions")
+    connection.execute("ALTER TABLE approved_labels DROP COLUMN bl_scheme")
+    connection.execute("ALTER TABLE predictions DROP COLUMN bl_scheme")
     connection.execute("PRAGMA user_version = 2")
     content = {
         "course_outcomes": [
@@ -415,6 +459,67 @@ def test_archiving_preserves_history_and_reimport_restores_same_course() -> None
     assert restored_record is not None
     assert restored_record["id"] == course["id"]
     assert len(database.list_question_history()) == 1
+    database.close()
+
+
+def test_hybrid_prediction_migration_preserves_legacy_records_and_stores_bl6(
+    tmp_path,
+) -> None:
+    database = DatabaseManager(tmp_path / "hybrid.sqlite3")
+    CourseManager(database).add_course(
+        "Networks", "CS301", outcome_descriptions()
+    )
+    question = database.create_question("CS301", "Analyze shortest paths.")
+    prediction = database.create_prediction(
+        question["id"], "CO1", "BL4"
+    )
+    approved = database.save_approved_labels(
+        question["id"],
+        "CO1",
+        "BL4",
+        prediction_id=prediction["id"],
+    )
+    database.close()
+    connection = sqlite3.connect(tmp_path / "hybrid.sqlite3")
+    connection.execute("DROP TABLE hybrid_predictions")
+    connection.execute("ALTER TABLE approved_labels DROP COLUMN bl_scheme")
+    connection.execute("PRAGMA user_version = 4")
+    connection.commit()
+    connection.close()
+    database = DatabaseManager(tmp_path / "hybrid.sqlite3")
+
+    record = database.save_hybrid_prediction(
+        prediction["id"],
+        "CO1",
+        "BL6",
+        status="predicted",
+        pipeline_mode="hybrid",
+        bl_scheme="revised_bl1_bl6",
+        decision_record={
+            "selected_co": "CO1",
+            "selected_bl": "BL6",
+            "sources_used": [],
+        },
+    )
+
+    history = database.list_question_history()
+    assert history[0]["predicted_co"] == "CO1"
+    assert history[0]["predicted_bl"] == "BL6"
+    assert history[0]["predicted_bl_scheme"] == "revised_bl1_bl6"
+    assert history[0]["approved_bl"] == "BL4"
+    assert history[0]["approved_bl_scheme"] == "custom_bl0_bl5"
+    assert record["bl_label"] == "BL6"
+    assert approved["bl_scheme"] == "custom_bl0_bl5"
+
+    database.save_approved_labels(
+        question["id"],
+        "CO1",
+        "BL6",
+        prediction_id=prediction["id"],
+        bl_scheme="revised_bl1_bl6",
+    )
+    assert database.list_question_history()[0]["approved_bl"] == "BL6"
+    assert database.integrity_check() == "ok"
     database.close()
 
 

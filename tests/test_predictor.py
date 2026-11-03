@@ -26,7 +26,7 @@ class FakeChatClient:
     def __init__(self, responses, *, encode_labels=True):
         labels = {
             "CO1", "CO2", "CO3", "CO4", "CO5",
-            "BL0", "BL1", "BL2", "BL3", "BL4", "BL5",
+            "BL0", "BL1", "BL2", "BL3", "BL4", "BL5", "BL6",
         }
         self.responses = [
             json.dumps({"label": response})
@@ -100,13 +100,27 @@ def test_prediction_formats_only_the_two_required_lines_and_persists_metadata(
     assert len(client.messages) == 2
     assert "CO1:" in client.messages[0][0][1]["content"]
     assert "CO4:" in client.messages[0][0][1]["content"]
-    assert "TF-IDF similarity scores" in client.messages[0][0][1]["content"]
+    assert '"label":"CO1"' not in client.messages[0][0][1]["content"]
+    assert "do not default to the first outcome" in client.messages[0][0][0]["content"]
+    assert client.messages[0][1]["response_format"]["schema"]["properties"][
+        "label"
+    ]["enum"] == ["CO1", "CO2", "CO3", "CO4", "N/A"]
     assert "Unit 1: Routing" in client.messages[0][0][1]["content"]
     assert "Unit 2: Data link layer" not in client.messages[0][0][1]["content"]
+    assert "Syllabus-aware match evidence for comparing outcomes" in (
+        client.messages[0][0][1]["content"]
+    )
+    assert "CO2: match=" in client.messages[0][0][1]["content"]
+    assert "Question subject terms (excluding the action verb)" in (
+        client.messages[0][0][1]["content"]
+    )
     assert "Never answer" in client.messages[0][0][0]["content"]
-    assert "BL1 (Remember)" in client.messages[1][0][1]["content"]
-    assert "BL5 (Evaluate)" in client.messages[1][0][1]["content"]
-    assert "Keyword matches are evidence only" in client.messages[1][0][0]["content"]
+    assert "BL1 – REMEMBER" in client.messages[1][0][0]["content"]
+    assert "BL6 – CREATE" in client.messages[1][0][0]["content"]
+    assert "Never determine the Bloom level using only an action verb" in client.messages[1][0][0]["content"]
+    assert client.messages[1][1]["response_format"]["schema"]["properties"][
+        "label"
+    ]["enum"] == ["BL1", "BL2", "BL3", "BL4", "BL5", "BL6", "N/A"]
 
     history = database.list_question_history()
     assert len(history) == 1
@@ -295,6 +309,27 @@ def test_syllabus_related_academic_question_reaches_prediction(
     database.close()
 
 
+def test_relevant_syllabus_topics_match_singular_and_plural_forms():
+    units = [
+        {
+            "unit_number": 1,
+            "unit_title": "Classes and Objects",
+            "topics": ["Classes", "Objects", "Methods"],
+        },
+        {
+            "unit_number": 2,
+            "unit_title": "Networking",
+            "topics": ["Routing", "Protocols"],
+        },
+    ]
+
+    relevant = QuestionPredictor._relevant_units(
+        "illustrate is classes and object ?", units
+    )
+
+    assert relevant == [units[0]]
+
+
 def test_vlsi_keyword_does_not_make_an_unrelated_personal_question_valid(
     tmp_path,
 ):
@@ -451,7 +486,8 @@ def test_unlinked_syllabus_is_not_used_as_reviewed_course_context(tmp_path):
 
     assert result.syllabus_version_id is None
     prompt = client.messages[0][0][1]["content"]
-    assert "No relevant reviewed syllabus topics were found." in prompt
+    assert "OTHER" not in prompt
+    assert "No relevant reviewed syllabus topics were found." not in prompt
     assert "Routing algorithms" not in prompt
     database.close()
 
@@ -555,6 +591,23 @@ def test_prediction_persists_co5_and_bl5_labels(tmp_path):
     history = database.list_question_history()
     assert history[0]["predicted_co"] == "CO5"
     assert history[0]["predicted_bl"] == "BL5"
+    assert result.bl_scheme == "revised_bl1_bl6"
+    database.close()
+
+
+def test_llm_prediction_accepts_and_persists_bl6(tmp_path):
+    database = make_database(tmp_path)
+    client = FakeChatClient(["CO4", "BL6"])
+    predictor = QuestionPredictor(database, client, load_bloom_config())
+
+    result = predictor.predict(
+        "CS305",
+        "Design a new network security system using the reviewed requirements.",
+    )
+
+    assert result.format_output() == "CO level - CO4\nBL level - BL6"
+    assert result.bl_scheme == "revised_bl1_bl6"
+    assert database.list_question_history()[0]["predicted_bl"] == "BL6"
     database.close()
 
 
@@ -598,6 +651,7 @@ def test_real_model_prediction_has_exactly_two_valid_output_lines(
         "BL level - BL3",
         "BL level - BL4",
         "BL level - BL5",
+        "BL level - BL6",
         "BL level - N/A",
     }
     history = database.list_question_history()

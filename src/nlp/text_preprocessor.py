@@ -17,6 +17,24 @@ def preprocess_text(text: str) -> str:
     return re.sub(r"\s+", " ", normalized).strip()
 
 
+def normalize_academic_term(term: str) -> str:
+    """Normalize common English plurals for syllabus/question matching."""
+    normalized = preprocess_text(term)
+    if normalized in {"news", "series", "species"}:
+        return normalized
+    if normalized.endswith("ies") and len(normalized) > 4:
+        return normalized[:-3] + "y"
+    if normalized.endswith(("sses", "shes", "ches", "xes", "zes")):
+        return normalized[:-2]
+    if (
+        normalized.endswith("s")
+        and len(normalized) > 3
+        and not normalized.endswith(("ss", "us", "is"))
+    ):
+        return normalized[:-1]
+    return normalized
+
+
 def tfidf_similarity_scores(query: str, candidates: list[str]) -> list[float]:
     if not candidates:
         return []
@@ -46,6 +64,7 @@ class SimilarApprovedExample:
     co_label: str
     bl_label: str
     similarity: float
+    bl_scheme: str = "custom_bl0_bl5"
 
 
 class ApprovedExampleRetriever:
@@ -67,7 +86,11 @@ class ApprovedExampleRetriever:
         self.max_results = max_results
 
     def retrieve(
-        self, course_code: str, question_text: str
+        self,
+        course_code: str,
+        question_text: str,
+        *,
+        bl_scheme: str | None = "custom_bl0_bl5",
     ) -> list[SimilarApprovedExample]:
         query = preprocess_text(question_text)
         if not query:
@@ -82,6 +105,11 @@ class ApprovedExampleRetriever:
             if record["label_review_status"] in {"approved", "corrected"}
             and record["approved_co"] is not None
             and record["approved_bl"] is not None
+            and (
+                bl_scheme is None
+                or record.get("approved_bl_scheme", "custom_bl0_bl5")
+                == bl_scheme
+            )
         ]
         if not approved_records:
             return []
@@ -100,6 +128,9 @@ class ApprovedExampleRetriever:
                 co_label=approved_records[index]["approved_co"],
                 bl_label=approved_records[index]["approved_bl"],
                 similarity=score,
+                bl_scheme=approved_records[index].get(
+                    "approved_bl_scheme", "custom_bl0_bl5"
+                ),
             )
             for index, score in ranked
             if score >= self.min_similarity
