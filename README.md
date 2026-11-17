@@ -25,8 +25,9 @@ format alone. When the evidence does not support a level, the result is `N/A`.
 Web Search sends only short technical concepts to public search, not the
 question text, course identity, official CO descriptions, or syllabus text.
 Clear web evidence is preferred; when it is missing or ambiguous, the panel
-shows the best syllabus-based CO match and labels it as a faculty-review
-fallback.
+maps public evidence back to the official COs locally. If a query is too broad
+for reliable public evidence, section headings and unit context from the
+reviewed syllabus help select the best-supported CO, marked for faculty review.
 
 ## Run
 

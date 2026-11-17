@@ -7,15 +7,25 @@ from src.prediction.bloom_taxonomy import (
     classify_bloom_level,
     detect_cognitive_action,
 )
+from src.nlp.text_preprocessor import normalize_academic_term
 from src.research.research_engine import ResearchEngine, ResearchEngineResult
-from src.research.syllabus_query_generator import SyllabusAwareQueryGenerator
+from src.research.syllabus_query_generator import (
+    CourseOutcomeRanking,
+    SyllabusAwareQueryGenerator,
+)
 
 
 _TOKEN_PATTERN = re.compile(r"[^\W_]+", re.UNICODE)
+_SECTION_HEADING_PATTERN = re.compile(
+    r"(?:^|[.!?])\s*([^.:]{2,80}):", re.MULTILINE
+)
 _STOP_WORDS = frozenset(
     {
         "a", "an", "and", "are", "as", "at", "be", "by", "can", "could",
         "describe", "determine", "do", "does", "during", "evaluate", "explain",
+        "example", "examples", "analyze", "apply", "calculate", "classify",
+        "compare", "compute", "create", "design", "differentiate", "develop",
+        "illustrate", "implement", "justify", "list", "summarize", "verify",
         "for", "from", "give", "has", "have", "how", "identify", "if", "in",
         "into", "is", "it", "its", "may", "might", "must", "of", "on", "or",
         "should", "show", "solve", "state", "that", "the", "their", "these",
@@ -67,7 +77,7 @@ class WebSearchPredictionService:
         concepts = self._technical_concepts(
             question, course_outcomes, syllabus_units
         )
-        rankings = SyllabusAwareQueryGenerator().generate(
+        query_analysis = SyllabusAwareQueryGenerator().generate(
             academic_question=question,
             course_name=course_name,
             course_code=course_code,
@@ -75,9 +85,15 @@ class WebSearchPredictionService:
             unit_topics=syllabus_units,
             relevant_technical_concepts=concepts,
             detected_cognitive_action=detect_cognitive_action(question),
-        ).co_rankings
+        )
+        context_scores, _used_section_match = self._course_context_scores(
+            question,
+            course_outcomes,
+            syllabus_units,
+            query_analysis.co_rankings,
+        )
         return self._best_context_match(
-            {ranking.co_id: ranking.similarity for ranking in rankings},
+            context_scores,
             set(course_outcomes),
         ) or "N/A"
 
@@ -170,11 +186,15 @@ class WebSearchPredictionService:
                 relevant_technical_concepts=concepts,
                 detected_cognitive_action=detect_cognitive_action(question),
             ).co_rankings
-        context_scores = {
-            ranking.co_id: ranking.similarity
-            for ranking in rankings
-            if ranking.co_id in course_outcomes
-        }
+        context_scores, used_section_match = cls._course_context_scores(
+            question,
+            course_outcomes,
+            syllabus_units,
+            rankings,
+        )
+        context_choice = cls._best_context_match(
+            context_scores, set(course_outcomes)
+        )
 
         if ranked:
             top_co, top_score = ranked[0]
@@ -187,29 +207,117 @@ class WebSearchPredictionService:
                 top_score >= MIN_CO_EVIDENCE_SCORE
                 and margin >= MIN_CO_EVIDENCE_MARGIN
             ):
+                if (
+                    used_section_match
+                    and context_choice is not None
+                    and context_choice != top_co
+                ):
+                    return context_choice, True
                 return top_co, False
 
-            if margin < MIN_CO_EVIDENCE_MARGIN:
-                tied_candidates = {
-                    co_id
-                    for co_id, score in ranked
-                    if top_score - score < MIN_CO_EVIDENCE_MARGIN
-                }
-                context_choice = cls._best_context_match(
-                    context_scores, tied_candidates
-                )
-                if context_choice is not None:
-                    return context_choice, True
+            if context_choice is not None:
+                return context_choice, True
             return top_co, True
 
-        context_choice = cls._best_context_match(
-            context_scores, set(course_outcomes)
-        )
         return (
             (context_choice, True)
             if context_choice is not None
             else ("N/A", False)
         )
+
+    @classmethod
+    def _course_context_scores(
+        cls,
+        question: str,
+        course_outcomes: Mapping[str, str],
+        syllabus_units: (
+            Mapping[str, Sequence[str]]
+            | Sequence[Mapping[str, object]]
+        ),
+        rankings: Sequence[CourseOutcomeRanking],
+    ) -> tuple[dict[str, float], bool]:
+        ranked_scores = {
+            ranking.co_id: ranking.similarity
+            for ranking in rankings
+            if ranking.co_id in course_outcomes
+        }
+        best_ranked_score = max(ranked_scores.values(), default=0.0)
+        if best_ranked_score >= MIN_CO_EVIDENCE_SCORE:
+            return ranked_scores, False
+
+        section_scores = cls._section_aware_syllabus_scores(
+            question, course_outcomes, syllabus_units
+        )
+        if section_scores:
+            return section_scores, True
+        return ranked_scores, False
+
+    @classmethod
+    def _section_aware_syllabus_scores(
+        cls,
+        question: str,
+        course_outcomes: Mapping[str, str],
+        syllabus_units: (
+            Mapping[str, Sequence[str]]
+            | Sequence[Mapping[str, object]]
+        ),
+    ) -> dict[str, float]:
+        question_terms = cls._meaningful_terms(question)
+        if not question_terms:
+            return {}
+
+        scores = {co_id: 0.0 for co_id in course_outcomes}
+        outcome_terms = {
+            co_id: cls._meaningful_terms(description)
+            for co_id, description in course_outcomes.items()
+        }
+        for topic in SyllabusAwareQueryGenerator._flatten_topics(
+            syllabus_units
+        ):
+            unit_terms = cls._meaningful_terms(topic.unit)
+            topic_terms = cls._meaningful_terms(topic.topic)
+            headings = _SECTION_HEADING_PATTERN.findall(topic.topic) or [
+                topic.unit
+            ]
+            for heading in headings:
+                heading_terms = cls._meaningful_terms(heading)
+                syllabus_anchor = unit_terms | heading_terms
+                header_match = cls._overlap(question_terms, heading_terms)
+                unit_match = cls._overlap(question_terms, syllabus_anchor)
+                body_match = cls._overlap(question_terms, topic_terms)
+                topic_relevance = max(
+                    header_match,
+                    0.6 * unit_match,
+                    0.2 * body_match,
+                )
+                if topic_relevance == 0:
+                    continue
+
+                for co_id, co_terms in outcome_terms.items():
+                    co_anchor = syllabus_anchor | (topic_terms & co_terms)
+                    co_alignment = cls._overlap(co_anchor, co_terms)
+                    scores[co_id] = max(
+                        scores[co_id],
+                        topic_relevance * co_alignment,
+                    )
+
+        return {
+            co_id: score for co_id, score in scores.items() if score > 0
+        }
+
+    @classmethod
+    def _meaningful_terms(cls, text: str) -> set[str]:
+        return {
+            normalize_academic_term(token)
+            for token in _TOKEN_PATTERN.findall(text.casefold())
+            if len(token) > 1 and token.casefold() not in _STOP_WORDS
+        }
+
+    @staticmethod
+    def _overlap(left: set[str], right: set[str]) -> float:
+        if not left or not right:
+            return 0.0
+        return len(left.intersection(right)) / len(left)
 
     @staticmethod
     def _best_context_match(
