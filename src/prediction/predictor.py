@@ -278,9 +278,24 @@ class QuestionPredictor:
         if co_rankings:
             context_parts.append(
                 "Syllabus-aware match evidence for comparing outcomes "
-                "(ranking is supporting evidence, not the answer):\n"
+                "(ranked from strongest to weakest using question-to-CO, "
+                "subject-term, and reviewed-topic alignment):\n"
                 f"{self._format_co_rankings(co_rankings)}"
             )
+            if len(co_rankings) > 1:
+                context_parts.append(
+                    "Leading syllabus-aware CO candidate: "
+                    f"{co_rankings[0].co_id} "
+                    f"(match={co_rankings[0].similarity:.3f}; "
+                    f"next={co_rankings[1].co_id} "
+                    f"{co_rankings[1].similarity:.3f})."
+                )
+            else:
+                context_parts.append(
+                    "Leading syllabus-aware CO candidate: "
+                    f"{co_rankings[0].co_id} "
+                    f"(match={co_rankings[0].similarity:.3f})."
+                )
         if approved_examples:
             context_parts.append(
                 "Similar faculty-reviewed examples:\n"
@@ -303,12 +318,24 @@ class QuestionPredictor:
                     "not from the action verb (for example, 'illustrate'), "
                     "cognitive difficulty, or Bloom level; CO and BL are "
                     "independent decisions. Match the question's subject terms "
-                    "to the syllabus and CO descriptions. "
-                    "A match score is a clue, not a label: select the CO whose "
-                    "official description best fits the question's objective, "
-                    "and do not prefer a CO merely because it has a broad "
-                    "keyword overlap. Use N/A only if it is unrelated or the "
-                    "course evidence is insufficient. Return only a JSON object "
+                    "to the syllabus and CO descriptions. For each outcome, "
+                    "compare the central subject, the expected student task, "
+                    "and any matching reviewed syllabus topics. Treat "
+                    "faculty-approved examples as supporting evidence, not "
+                    "as a reason to repeat their label. A match score is a "
+                    "clue, not an automatic label. Give the leading "
+                    "syllabus-aware candidate substantial weight when its "
+                    "score is clearly higher; choose a different CO only "
+                    "when the question's full objective and official CO "
+                    "description clearly support that choice. If scores are "
+                    "close, compare the full descriptions and requested task. "
+                    "If the question is related to the supplied course "
+                    "content, choose its closest-supported CO rather than "
+                    "N/A just because wording differs. Do not select an "
+                    "outcome based only on broad keyword overlap. Use N/A "
+                    "only when the question is unrelated or course evidence "
+                    "is insufficient. Return "
+                    "only a JSON object "
                     'with one "label" from the supplied outcomes or N/A.'
                 ),
             },

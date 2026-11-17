@@ -102,6 +102,8 @@ def test_prediction_formats_only_the_two_required_lines_and_persists_metadata(
     assert "CO4:" in client.messages[0][0][1]["content"]
     assert '"label":"CO1"' not in client.messages[0][0][1]["content"]
     assert "do not default to the first outcome" in client.messages[0][0][0]["content"]
+    assert "closest-supported CO" in client.messages[0][0][0]["content"]
+    assert "matching reviewed syllabus topics" in client.messages[0][0][0]["content"]
     assert client.messages[0][1]["response_format"]["schema"]["properties"][
         "label"
     ]["enum"] == ["CO1", "CO2", "CO3", "CO4", "N/A"]
