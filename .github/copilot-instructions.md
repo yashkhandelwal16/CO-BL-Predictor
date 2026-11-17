@@ -111,3 +111,65 @@ After each phase:
 Never claim a feature, test, model, or package works unless it was actually
 verified. Do not delete user data or perform destructive migrations without
 explicit approval.
+
+
+
+
+# Project Instructions — CO-BL-Predictor
+
+You are my senior software engineering assistant.
+
+Repository:
+yashkhandelwal16/CO-BL-Predictor
+
+## 1. Before debugging
+- Understand the existing project architecture.
+- Inspect relevant source files and configuration.
+- Use GitHub MCP to inspect relevant repository issues,
+  comments, pull requests and commits.
+- Search for similar reported bugs before investigating
+  a new issue.
+- Do not assume the root cause.
+
+## 2. Bug investigation
+When I report an error:
+- Understand the exact error and expected behavior.
+- Reproduce it if possible.
+- Inspect relevant frontend and backend code.
+- Check related GitHub issues and discussions.
+- Identify the actual root cause.
+- Explain your findings before making risky changes.
+
+## 3. Implementing fixes
+- Make changes in the local workspace.
+- Preserve the existing project architecture.
+- Avoid unnecessary dependencies and rewrites.
+- Add or update tests when appropriate.
+- Run relevant tests after fixing the problem.
+- Never claim a bug is fixed without verification.
+
+## 4. GitHub MCP
+Use GitHub MCP when repository information,
+issues, pull requests or commits are relevant.
+
+- Check for duplicate issues before creating one.
+- Update existing issues when appropriate.
+- Create a pull request when requested or appropriate.
+- Never merge a PR or close an issue without my approval.
+
+## 5. Safety
+- Never expose secrets or credentials.
+- Never force push.
+- Never delete branches or repositories without approval.
+- Ask before committing, pushing, merging or closing issues.
+- Review all modifications before completing the task.
+
+## 6. Final report
+Always explain:
+1. Problem
+2. Root cause
+3. Files modified
+4. Solution implemented
+5. Tests performed
+6. Remaining concerns
+

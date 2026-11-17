@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from src.prediction.web_search_prediction import WebSearchPredictionService
 from src.prediction.web_search_worker import WebSearchPredictionWorker
 from src.research.research_engine import ResearchEngine, ResearchSource
+from src.research.syllabus_query_generator import SyllabusAwareQueryGenerator
 from src.research.web_search import SearchUnavailableError, WebSearchService
 
 
@@ -21,6 +22,48 @@ UNITS = [
     },
 ]
 QUESTION = "Analyze Dijkstra routing and shortest paths."
+OOP_OUTCOMES = {
+    "CO1": "Remember OOP principles and Java programming basics.",
+    "CO2": "Understand inheritance and polymorphism concepts in program design.",
+    "CO3": "Apply object relationships, aggregation, and delegation in OOP models.",
+    "CO4": (
+        "Analyze package, exception handling, and string handling in "
+        "object-oriented design."
+    ),
+}
+OOP_UNITS = [
+    {
+        "unit_title": "Introduction to OOP and Java Basics",
+        "topics": [
+            "OOP Paradigm: Object-oriented programming principles.",
+            "Java Fundamentals: Java Virtual Machine and programming basics.",
+            "Classes and Objects: Defining a class, creating objects, methods.",
+        ],
+    },
+    {
+        "unit_title": "Inheritance and Polymorphism",
+        "topics": [
+            "Inheritance: Types of inheritance and method overriding.",
+            "Abstract classes and interfaces.",
+        ],
+    },
+    {
+        "unit_title": "Object Relationships and Memory Management",
+        "topics": [
+            "Object Structural Relationships: Association, aggregation, and composition."
+        ],
+    },
+    {
+        "unit_title": "String Handling",
+        "topics": ["String: The String class as an object."],
+    },
+    {
+        "unit_title": "Packages and Exception Handling",
+        "topics": [
+            "Exception Handling: Fundamentals of exceptions and custom exception classes."
+        ],
+    },
+]
 
 
 class FakeDDGS:
@@ -60,6 +103,15 @@ class FakeExtractionService:
 class FailingSearchService:
     def search(self, _query, *, max_results):
         raise SearchUnavailableError("Web search is unavailable.")
+
+
+class EmptySearchService:
+    def __init__(self):
+        self.queries = []
+
+    def search(self, query, *, max_results):
+        self.queries.append(query)
+        return []
 
 
 def _source(co_id, score):
@@ -138,6 +190,88 @@ def test_ambiguous_web_evidence_uses_best_syllabus_co_and_keeps_bl_independent()
     assert "syllabus-based" in result.status_message
     assert engine.inputs["course_outcomes"] == OUTCOMES
     assert engine.inputs["unit_topics"] == UNITS
+
+
+def test_vague_class_question_uses_introductory_syllabus_section_not_string_class():
+    engine = StaticResearchEngine("success")
+    result = WebSearchPredictionService(engine).predict(
+        question="explain with example what is classes ?",
+        course_name="Object Oriented Programming using Java",
+        course_code="CS3013",
+        course_outcomes=OOP_OUTCOMES,
+        syllabus_units=OOP_UNITS,
+    )
+
+    assert result.co_label == "CO1"
+    assert "syllabus-based" in result.status_message
+
+
+def test_section_aware_fallback_maps_academic_topics_to_their_co():
+    expected_labels = [
+        ("explain with example what is classes ?", "CO1"),
+        ("Explain inheritance with an example.", "CO2"),
+        ("Explain object aggregation and delegation in OOP.", "CO3"),
+        ("Explain exception handling.", "CO4"),
+    ]
+    service = WebSearchPredictionService(StaticResearchEngine("success"))
+
+    for question, expected_co in expected_labels:
+        assert service.course_context_suggestion(
+            question=question,
+            course_name="Object Oriented Programming using Java",
+            course_code="CS3013",
+            course_outcomes=OOP_OUTCOMES,
+            syllabus_units=OOP_UNITS,
+        ) == expected_co
+
+
+def test_ddgs_uses_sanitized_terms_and_maps_empty_results_to_syllabus_co():
+    search = EmptySearchService()
+    engine = ResearchEngine(
+        search_service=search,
+        extraction_service=FakeExtractionService(),
+        query_generator=SyllabusAwareQueryGenerator(
+            min_co_similarity=0.001
+        ),
+        max_queries=5,
+        max_pages_to_extract=1,
+    )
+    question = "explain with example what is classes ?"
+    result = WebSearchPredictionService(engine).predict(
+        question=question,
+        course_name="Object Oriented Programming using Java",
+        course_code="CS3013",
+        course_outcomes=OOP_OUTCOMES,
+        syllabus_units=OOP_UNITS,
+    )
+
+    assert search.queries
+    assert result.co_label == "CO1"
+    assert "syllabus-based" in result.status_message
+    for query in search.queries:
+        assert question.casefold() not in query.casefold()
+        assert "cs3013" not in query.casefold()
+        assert all(
+            description.casefold() not in query.casefold()
+            for description in OOP_OUTCOMES.values()
+        )
+
+
+def test_ambiguous_public_match_does_not_override_stronger_syllabus_section():
+    engine = StaticResearchEngine(
+        "success",
+        sources=(_source("CO4", 0.8),),
+    )
+    result = WebSearchPredictionService(engine).predict(
+        question="explain with example what is classes ?",
+        course_name="Object Oriented Programming using Java",
+        course_code="CS3013",
+        course_outcomes=OOP_OUTCOMES,
+        syllabus_units=OOP_UNITS,
+    )
+
+    assert result.co_label == "CO1"
+    assert "syllabus-based" in result.status_message
 
 
 def test_search_failure_returns_unavailable_co_without_blocking_bl():
