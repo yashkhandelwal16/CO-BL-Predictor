@@ -51,10 +51,6 @@ BLOOM_LEVELS = (
             "Explain polymorphism.",
             "Differentiate between JDK and JRE.",
             "Describe the working of inheritance.",
-<<<<<<< HEAD
-=======
-            "Illustrate the relationship between a class and an object.",
->>>>>>> upload-mvp
         ),
     ),
     BloomLevel(
